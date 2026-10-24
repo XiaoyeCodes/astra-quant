@@ -1,0 +1,38 @@
+# ASTRA 星枢：OctoBot（执行策略）+ 桥接服务（科幻驾驶舱）
+# 两个端口都只绑定在本机 127.0.0.1，局域网和外网访问不到。
+services:
+  octobot:
+    image: drakkarsoftware/octobot:stable
+    container_name: astra-octobot
+    volumes:
+      - ./octobot/user:/octobot/user
+      - ./octobot/tentacles:/octobot/tentacles
+      - ./octobot/logs:/octobot/logs
+      - ./octobot/backtesting:/octobot/backtesting
+    ports:
+      - "127.0.0.1:5001:5001"
+    # 驾驶舱的“紧急停止”会让 OctoBot 正常退出；on-failure 保证它不会被自动拉起
+    restart: on-failure
+
+  bridge:
+    build:
+      context: .
+      dockerfile: bridge/Dockerfile
+      args:
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.org/simple}
+    container_name: astra-bridge
+    env_file: .env
+    environment:
+      OCTOBOT_URL: http://octobot:5001
+      OCTOBOT_USER_DIR: /octobot-user
+      DATA_DIR: /data
+    volumes:
+      - ./octobot/user:/octobot-user:ro
+      - ./data:/data
+    ports:
+      - "127.0.0.1:8080:8080"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - octobot
+    restart: unless-stopped

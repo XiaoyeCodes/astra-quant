@@ -1,0 +1,44 @@
+{
+    "config": {
+        "crypto-currencies": {
+            "Bitcoin": {
+                "enabled": true,
+                "pairs": ["BTC/USDT"]
+            }
+        },
+        "exchanges": {
+            "bitget": {
+                "enabled": true,
+                "exchange-type": "spot"
+            }
+        },
+        "trader": {
+            "enabled": false,
+            "load-trade-history": true
+        },
+        "trader-simulator": {
+            "enabled": true,
+            "fees": {
+                "maker": 0.1,
+                "taker": 0.1
+            },
+            "starting-portfolio": {
+                "BTC": 0.015,
+                "USDT": 1000
+            }
+        },
+        "trading": {
+            "reference-market": "USDT",
+            "risk": 0.5
+        }
+    },
+    "profile": {
+        "avatar": "default_profile.png",
+        "complexity": 1,
+        "description": "ASTRA 预设：Bitget 现货 BTC/USDT 网格。当前价上下各挂 8 档，每档间隔 400 USDT（约 0.6%）。成交后立即在相邻价位挂反向单赚取差价。默认模拟盘，确认后再在 OctoBot 里切换实盘。",
+        "id": "astra_spot_grid",
+        "name": "ASTRA · 现货网格 BTC",
+        "read_only": false,
+        "risk": 1
+    }
+}

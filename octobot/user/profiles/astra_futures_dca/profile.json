@@ -1,0 +1,43 @@
+{
+    "config": {
+        "crypto-currencies": {
+            "Bitcoin": {
+                "enabled": true,
+                "pairs": ["BTC/USDT:USDT"]
+            }
+        },
+        "exchanges": {
+            "bitget": {
+                "enabled": true,
+                "exchange-type": "future"
+            }
+        },
+        "trader": {
+            "enabled": false,
+            "load-trade-history": true
+        },
+        "trader-simulator": {
+            "enabled": true,
+            "fees": {
+                "maker": 0.02,
+                "taker": 0.06
+            },
+            "starting-portfolio": {
+                "USDT": 1000
+            }
+        },
+        "trading": {
+            "reference-market": "USDT",
+            "risk": 0.5
+        }
+    },
+    "profile": {
+        "avatar": "default_profile.png",
+        "complexity": 2,
+        "description": "ASTRA 预设：Bitget USDT 永续 BTC/USDT:USDT 分批补仓（类马丁）。每 4 小时开一轮：首单用 4% 资金，价格每下跌 1.5% 补一单（每单 6% 资金，共 3 单），均价上方 1.2% 止盈，下方 6% 止损。默认模拟盘。合约有爆仓风险，杠杆请在 Bitget 设为 1-3 倍。",
+        "id": "astra_futures_dca",
+        "name": "ASTRA · 合约分批补仓 BTC",
+        "read_only": false,
+        "risk": 2
+    }
+}

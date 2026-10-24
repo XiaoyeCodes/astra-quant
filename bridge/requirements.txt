@@ -1,0 +1,3 @@
+starlette>=0.37,<2
+uvicorn[standard]>=0.29
+ccxt>=4.4,<5

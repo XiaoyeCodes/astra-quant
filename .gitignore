@@ -1,0 +1,11 @@
+.env
+data/
+octobot/logs/
+octobot/tentacles/
+octobot/backtesting/
+octobot/user/*
+!octobot/user/profiles/
+octobot/user/profiles/*
+!octobot/user/profiles/astra_spot_grid/
+!octobot/user/profiles/astra_futures_dca/
+__pycache__/

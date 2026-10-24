@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>ASTRA 星枢驾驶舱</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="css/astra.css">
+</head>
+<body>
+<div class="grain" aria-hidden="true"></div>
+
+<header class="topbar">
+  <div class="brand">
+    <svg class="mark" viewBox="0 0 40 40" aria-hidden="true">
+      <circle cx="20" cy="20" r="17" fill="none" stroke="currentColor" stroke-width="1"/>
+      <ellipse cx="20" cy="20" rx="17" ry="6.5" fill="none" stroke="currentColor" stroke-width=".8" transform="rotate(-24 20 20)" opacity=".55"/>
+      <circle cx="20" cy="20" r="2.2" fill="currentColor"/>
+      <circle cx="33.6" cy="13.2" r="1.6" fill="var(--bull)"/>
+    </svg>
+    <div class="brand-text">
+      <div class="eyebrow">OCTOBOT · BITGET · 量化驾驶舱</div>
+      <div class="brand-name">ASTRA <span>星枢</span></div>
+    </div>
+  </div>
+  <div class="chips" id="linkChips">
+    <span class="chip mode" id="modeChip">连接中</span>
+    <span class="chip" id="chipOcto"><i class="dot"></i>OCTOBOT</span>
+    <span class="chip" id="chipBitget"><i class="dot"></i>BITGET</span>
+    <span class="chip" id="chipBridge"><i class="dot"></i>BRIDGE</span>
+  </div>
+  <div class="topright">
+    <button class="gear" id="settingsBtn" type="button" aria-haspopup="dialog" aria-controls="settings"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><circle cx="12" cy="12" r="3.2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M12 2.8v3M12 18.2v3M2.8 12h3M18.2 12h3M5.5 5.5l2.1 2.1M16.4 16.4l2.1 2.1M5.5 18.5l2.1-2.1M16.4 7.6l2.1-2.1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>设置</button>
+    <button class="kill" id="killBtn" type="button" hidden>紧急停止</button>
+    <div class="clock num" id="clock">--:--:-- UTC</div>
+  </div>
+</header>
+
+<div class="banner" id="banner" hidden></div>
+
+<main class="wrap">
+  <!-- 01 · 3D stage -->
+  <section class="stage" id="stage" aria-label="3D 行情主视觉">
+    <canvas id="halo"></canvas>
+    <canvas id="tower" hidden></canvas>
+    <div class="stage-fallback" id="towerFallback" hidden>3D 渲染不可用：浏览器未开启 WebGL。其余面板照常工作。</div>
+    <div class="stage-fallback" id="stageWait" hidden></div>
+
+    <div class="hud hud-tl">
+      <div class="label"><i class="dot bull"></i>总权益 · TOTAL EQUITY · <span id="eqCcy">USDT</span></div>
+      <div class="equity num-serif" id="eqValue">—</div>
+      <div class="pills">
+        <span class="pill"><b id="eqRet">—</b> 收益率</span>
+        <span class="pill"><b id="eqReal">—</b> 已实现</span>
+        <span class="pill"><b id="eqWin">—</b> 胜率</span>
+        <span class="pill"><b id="eqDD">—</b> 最大回撤</span>
+      </div>
+      <canvas class="eqspark" id="eqSpark" aria-label="权益曲线"></canvas>
+      <div class="recent" id="recentClosed"></div>
+    </div>
+
+    <div class="hud hud-tr">
+      <div class="label">关注交易对 · FOCUS</div>
+      <label class="sr" for="focusSel">关注交易对</label>
+      <select id="focusSel"></select>
+      <div class="last num" id="lastPx">—</div>
+      <div class="sub num" id="lastChg">—</div>
+      <dl class="kv num">
+        <div><dt>买一 BID</dt><dd id="bidPx">—</dd></div>
+        <div><dt>卖一 ASK</dt><dd id="askPx">—</dd></div>
+        <div><dt>点差</dt><dd id="spread">—</dd></div>
+        <div><dt>24H 区间</dt><dd id="range24">—</dd></div>
+      </dl>
+    </div>
+
+    <div class="hud hud-bl" id="riskCard">
+      <div class="label">仓位与风险 · EXPOSURE</div>
+      <div class="equity num" id="upnlValue">—</div>
+      <div class="sub-cap">未实现盈亏 · <span id="upnlCcy">USDT</span></div>
+      <div class="pills">
+        <span class="pill"><b id="rkPos">—</b> 持仓</span>
+        <span class="pill"><b id="rkOrders">—</b> 挂单 买/卖</span>
+        <span class="pill"><b id="rkLiq">—</b> 距强平</span>
+        <span class="pill"><b id="rkExpo">—</b> 持仓价值</span>
+      </div>
+      <div class="gridbar" aria-label="现价在网格区间中的位置">
+        <div class="gb-track"><i class="gb-buy" id="gbBuy"></i><i class="gb-sell" id="gbSell"></i><b class="gb-mark" id="gbMark"></b></div>
+        <div class="gb-scale num"><span id="gbLo">—</span><span id="gbPct">网格区间</span><span id="gbHi">—</span></div>
+      </div>
+      <div class="rk-foot"><span id="stratMeta">—</span><a class="link" id="octoLink" href="http://localhost:5001" target="_blank" rel="noopener">OctoBot ↗</a></div>
+    </div>
+    <div class="hud hud-br" id="flowCard">
+      <div class="label">成交动态 · TRADE FLOW</div>
+      <div class="equity num" id="flowVol">—</div>
+      <div class="sub-cap">近 1 小时成交额 · <span id="flowCcy">USDT</span></div>
+      <div class="pills">
+        <span class="pill"><b id="flBuyN" class="pos">—</b> 买入笔数</span>
+        <span class="pill"><b id="flSellN" class="neg">—</b> 卖出笔数</span>
+        <span class="pill"><b id="flBuyAvg">—</b> 买入均价</span>
+        <span class="pill"><b id="flSellAvg">—</b> 卖出均价</span>
+      </div>
+      <div class="gridbar" aria-label="买卖成交额占比">
+        <div class="gb-track"><i class="gb-buy" id="flBuyBar"></i><i class="gb-sell" id="flSellBar"></i></div>
+        <div class="gb-scale num"><span id="flBuyPct">买 —</span><span>成交额占比</span><span id="flSellPct">卖 —</span></div>
+      </div>
+      <div class="fills num" id="flowList"></div>
+    </div>
+  </section>
+
+  <!-- 02 · lattice + pulse -->
+  <div class="row">
+    <section class="panel span-7" aria-labelledby="hLattice">
+      <div class="ph">
+        <h2 id="hLattice"><i class="dot"></i>概率栅格 <em>PROBABILITY LATTICE</em> · <span id="latTitleCount">0</span> 笔平仓</h2>
+        <div class="meta">每个小球 = 一笔已平仓交易 · 按收益率落入格子</div>
+      </div>
+      <div class="lattice">
+        <div class="lat-stats">
+          <div class="cap">本次会话</div>
+          <dl class="kv num">
+            <div><dt>落球</dt><dd id="latBalls">0</dd></div>
+            <div><dt>盈利占比</dt><dd id="latWin">—</dd></div>
+            <div><dt>每笔期望</dt><dd id="latEv">—</dd></div>
+            <div><dt>会话盈亏</dt><dd id="latSession">—</dd></div>
+          </dl>
+          <div class="cap">全部记录</div>
+          <dl class="kv num">
+            <div><dt>平仓笔数</dt><dd id="latAll">0</dd></div>
+            <div><dt>平均盈利</dt><dd id="latAvgWin">—</dd></div>
+            <div><dt>平均亏损</dt><dd id="latAvgLoss">—</dd></div>
+            <div><dt>已实现</dt><dd id="latReal">—</dd></div>
+          </dl>
+          <p class="note">胜率看小球落在中线哪边，赚亏看柱子离中线多远。网格策略的胜率通常很高，偶尔的大亏落在最左边。</p>
+        </div>
+        <div class="lat-canvas"><canvas id="lattice" aria-label="已平仓交易收益分布"></canvas></div>
+      </div>
+    </section>
+
+    <section class="panel span-5" aria-labelledby="hPulse">
+      <div class="ph">
+        <h2 id="hPulse"><i class="dot"></i>市场脉搏 <em>PULSE</em> · <span id="pulseSym">—</span></h2>
+        <div class="meta num" id="pulseMeta">—</div>
+      </div>
+      <div class="pulse">
+        <canvas id="book" aria-label="订单簿深度"></canvas>
+        <canvas id="pulseChart" aria-label="实时价格与成交"></canvas>
+      </div>
+    </section>
+  </div>
+
+  <!-- 03 · topology + inspector -->
+  <div class="row">
+    <section class="panel span-8 graph-panel" aria-labelledby="hGraph">
+      <div class="ph">
+        <h2 id="hGraph"><i class="dot"></i>策略沙盘 <em>HOLO SAND TABLE</em></h2>
+        <div class="meta num" id="graphMeta">—</div>
+      </div>
+      <div class="graph-body">
+        <div class="graph-legend" id="graphLegend"></div>
+        <canvas id="graph" aria-label="全息沙盘：交易所、引擎、策略、交易对到结果的流程，可拖动旋转"></canvas>
+      </div>
+    </section>
+
+    <section class="panel span-4 inspector" aria-labelledby="hInspect">
+      <div class="ph">
+        <h2 id="hInspect"><i class="dot"></i>节点详情 <em>INSPECTOR</em></h2>
+        <div class="meta">点击沙盘中的站点</div>
+      </div>
+      <div class="insp-title" id="inspTitle">—</div>
+      <div class="insp-type" id="inspType"></div>
+      <dl class="insp-kv num" id="inspKv"></dl>
+      <canvas id="inspRadial" aria-label="相邻节点"></canvas>
+      <div class="insp-n" id="inspN"></div>
+    </section>
+  </div>
+
+  <!-- 04 · book of record + console -->
+  <div class="row">
+    <section class="panel span-7" aria-labelledby="hRecords">
+      <div class="ph">
+        <h2 id="hRecords"><i class="dot"></i>账簿 <em>LEDGER</em></h2>
+        <div class="tabs" role="tablist">
+          <button role="tab" class="tab on" data-tab="orders" type="button">挂单 <b id="cntOrders">0</b></button>
+          <button role="tab" class="tab" data-tab="positions" type="button">持仓 <b id="cntPositions">0</b></button>
+          <button role="tab" class="tab" data-tab="trades" type="button">成交 <b id="cntTrades">0</b></button>
+        </div>
+      </div>
+      <div class="table-wrap"><table class="num" id="ledger"><thead></thead><tbody></tbody></table></div>
+    </section>
+
+    <section class="panel span-5" aria-labelledby="hConsole">
+      <div class="ph">
+        <h2 id="hConsole"><i class="dot"></i>控制台 <em>CONSOLE</em></h2>
+        <div class="meta num" id="consoleMeta">—</div>
+      </div>
+      <div class="console" id="console"></div>
+    </section>
+  </div>
+</main>
+
+<footer class="statusline num" id="statusline">—</footer>
+
+<div class="drawer-bg" id="settingsBg" hidden></div>
+<aside class="drawer" id="settings" role="dialog" aria-modal="true" aria-labelledby="settingsTitle" hidden>
+  <div class="drawer-head">
+    <div><div class="label">个人设置 · SETTINGS</div><h3 id="settingsTitle">显示与视图</h3></div>
+    <button type="button" class="drawer-x" id="settingsClose" aria-label="关闭设置">✕</button>
+  </div>
+  <section class="drawer-sec">
+    <h4>主视觉风格</h4>
+    <div class="seg" id="segStyle" role="group" aria-label="主视觉风格">
+      <button type="button" data-v="halo">时间光环 360°</button>
+      <button type="button" data-v="holo">全息 K 线台</button>
+    </div>
+  </section>
+  <section class="drawer-sec">
+    <h4>镜头</h4>
+    <div class="seg" id="segCam" role="group" aria-label="镜头模式">
+      <button type="button" data-v="orbit">自动环绕</button>
+      <button type="button" data-v="follow" id="camFollowBtn">跟随现价居中</button>
+    </div>
+    <button type="button" class="tg track" id="trackToggle" hidden aria-pressed="false"><i></i>跟随现价</button>
+    <p class="hint" id="viewHint">拖动旋转 · 滚轮缩放 · 双击复位 · 1 分钟 K 线</p>
+  </section>
+  <section class="drawer-sec">
+    <h4>指标</h4>
+    <div class="toggles" id="indToggles">
+      <button type="button" class="tg" data-k="ma7"><i style="background:#f2d38a"></i>MA7</button>
+      <button type="button" class="tg" data-k="ma25"><i style="background:#c7a6ff"></i>MA25</button>
+      <button type="button" class="tg" data-k="ma99"><i style="background:#6fd6c4"></i>MA99</button>
+      <button type="button" class="tg" data-k="boll"><i class="band"></i>布林带</button>
+      <button type="button" class="tg" data-k="sr"><i class="dash"></i>压力 / 支撑</button>
+      <button type="button" class="tg" data-k="orders"><i class="planes"></i>网格挂单</button>
+    </div>
+  </section>
+  <p class="drawer-note">设置保存在本机浏览器，下次打开自动恢复。</p>
+</aside>
+
+<div class="modal" id="killModal" hidden>
+  <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="killTitle">
+    <h3 id="killTitle">紧急停止</h3>
+    <p>这会让 OctoBot 撤销全部挂单，然后停止运行。已有持仓不会自动平仓，需要你在 Bitget 或 OctoBot 中自行处理。</p>
+    <label for="killConfirm">输入“确认”后执行</label>
+    <input id="killConfirm" type="text" autocomplete="off" placeholder="确认">
+    <div class="modal-actions">
+      <button type="button" class="ghost" id="killCancel">取消</button>
+      <button type="button" class="danger" id="killGo">撤单并停止</button>
+    </div>
+    <div class="modal-msg" id="killMsg"></div>
+  </div>
+</div>
+
+<script src="vendor/three.min.js"></script>
+<script src="js/util.js"></script>
+<script src="js/demo.js"></script>
+<script src="js/feed.js"></script>
+<script src="js/indicators.js"></script>
+<script src="js/tower.js"></script>
+<script src="js/halo.js"></script>
+<script src="js/lattice.js"></script>
+<script src="js/pulse.js"></script>
+<script src="js/graph.js"></script>
+<script src="js/panels.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
