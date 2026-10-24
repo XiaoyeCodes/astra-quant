@@ -4,6 +4,7 @@ Uses only the standard library (urllib) in worker threads, so it has no extra
 dependency. Endpoints used (OctoBot web interface, login disabled):
   GET  /api/ping, /api/version
   GET  /api/orders, /api/trades, /api/positions, /api/pnl_history
+  GET  /api/historical_portfolio_value
   POST /api/orders?action=cancel_orders   (body: list of order ids)
   GET  /commands/stop
 """
@@ -13,6 +14,7 @@ import asyncio
 import glob
 import json
 import os
+import time
 import urllib.error
 import urllib.request
 from typing import Any
@@ -86,6 +88,22 @@ async def pnl_history() -> list[dict]:
     return res if isinstance(res, list) else []
 
 
+async def portfolio_value(currency: str) -> float | None:
+    """Current portfolio value as computed by OctoBot, in the reference market.
+
+    OctoBot keeps the simulated portfolio across restarts and profile switches, so
+    this is the only reliable source for paper trading equity.
+    """
+    since = int(time.time()) - 900
+    res = await call("GET", f"/api/historical_portfolio_value?currency={currency}&time_frame=1m&from_timestamp={since}")
+    if not isinstance(res, list) or not res:
+        return None
+    try:
+        return float(res[-1]["value"])
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
 async def cancel_orders(order_ids: list[str]) -> str:
     res = await call("POST", "/api/orders?action=cancel_orders", order_ids)
     return str(res)
@@ -144,7 +162,9 @@ def read_active_profile() -> dict:
     trader_real = bool(pconf.get("trader", {}).get("enabled"))
     simulator = bool(pconf.get("trader-simulator", {}).get("enabled"))
     tentacles = _load_json(os.path.join(os.path.dirname(chosen_path), "tentacles_config.json"))
-    modes = [k for k, v in tentacles.get("tentacle_activation", {}).get("Trading", {}).items() if v]
+    # OctoBot rewrites this file with every exchange tentacle activated too, so keep trading modes only
+    modes = [k for k, v in tentacles.get("tentacle_activation", {}).get("Trading", {}).items()
+             if v and k.endswith("TradingMode")]
     return {
         "id": meta.get("id", wanted),
         "name": meta.get("name", wanted),

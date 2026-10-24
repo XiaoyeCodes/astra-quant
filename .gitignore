@@ -8,4 +8,5 @@ octobot/user/*
 octobot/user/profiles/*
 !octobot/user/profiles/astra_spot_grid/
 !octobot/user/profiles/astra_futures_dca/
+!octobot/user/profiles/astra_spot_dca/
 __pycache__/

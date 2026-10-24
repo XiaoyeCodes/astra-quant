@@ -2,7 +2,8 @@
 # 两个端口都只绑定在本机 127.0.0.1，局域网和外网访问不到。
 services:
   octobot:
-    image: drakkarsoftware/octobot:stable
+    # 固定 2.x：stable 标签已指向 3.0（节点模式，没有 5001 端口上的 /api/* 接口，桥接服务读不到数据）
+    image: drakkarsoftware/octobot:2.1.1
     container_name: astra-octobot
     volumes:
       - ./octobot/user:/octobot/user
