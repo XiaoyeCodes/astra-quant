@@ -1,7 +1,7 @@
 /* ASTRA data feed: bridge WebSocket when available, local demo engine otherwise. */
 (function () {
   const A = window.ASTRA;
-  const feed = { ws: null, bridgeState: null, demo: null, usingDemo: false, connected: false, timer: null, retry: 1000, wsFails: 0, polling: false };
+  const feed = { ws: null, bridgeState: null, lastRealState: null, demo: null, usingDemo: false, connected: false, timer: null, retry: 1000, wsFails: 0, polling: false };
   A.feed = feed;
 
   function emit(state) {
@@ -37,9 +37,23 @@
 
   function handle(st) {
     feed.bridgeState = st;
-    if (st.mode === 'demo') { useDemo(true); return; }
+    if (st.mode === 'demo') { retainOrDemo(st.links); return; }
+    feed.lastRealState = st;
     useDemo(false);
     emit(st);
+  }
+
+  function retainOrDemo(links) {
+    if (!feed.lastRealState) { useDemo(true); return; }
+    useDemo(false);
+    const last = feed.lastRealState;
+    const status = links || last.links;
+    emit(Object.assign({}, last, {
+      stale: true,
+      links: Object.assign({}, status, {
+        bridge: Object.assign({}, status.bridge, { ok: feed.connected })
+      })
+    }));
   }
 
   /* HTTP polling fallback when WebSockets are blocked (proxies, missing ws support) */
@@ -54,8 +68,7 @@
         handle(await res.json());
       } catch (e) {
         feed.connected = false;
-        if (feed.bridgeState) feed.bridgeState.links.bridge.ok = false;
-        useDemo(true);
+        retainOrDemo();
       }
       setTimeout(tick, 1000);
     };
@@ -66,7 +79,7 @@
     if (feed.polling) return;
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
     let ws;
-    try { ws = new WebSocket(`${proto}//${location.host}/ws`); } catch (e) { useDemo(true); return; }
+    try { ws = new WebSocket(`${proto}//${location.host}/ws`); } catch (e) { feed.connected = false; retainOrDemo(); startPolling(); return; }
     feed.ws = ws;
     let opened = false;
     ws.onopen = () => { opened = true; feed.connected = true; feed.retry = 1000; feed.wsFails = 0; };
@@ -78,9 +91,8 @@
     ws.onclose = () => {
       feed.connected = false;
       feed.ws = null;
+      retainOrDemo();
       if (!opened && ++feed.wsFails >= 2) { startPolling(); return; }
-      if (feed.bridgeState) feed.bridgeState.links.bridge.ok = false;
-      useDemo(true);
       setTimeout(connect, feed.retry);
       feed.retry = Math.min(feed.retry * 2, 15000);
     };
@@ -104,6 +116,7 @@
   /* strategy desk: /api/strategy/<action>; resolves with the reply, rejects with the bridge's message */
   feed.strategy = async function (action, body) {
     if (feed.usingDemo) throw new Error('演示模式：连接 OctoBot 后才能操作');
+    if (!feed.connected || (A.state && A.state.stale)) throw new Error('数据连接中断，请等待重连后操作');
     const res = await fetch(`/api/strategy/${action}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
     let data = {};
     try { data = await res.json(); } catch (e) { /* ignore */ }

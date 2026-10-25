@@ -82,6 +82,7 @@
     let msg = '';
     if (demo && !L.bridge.version) msg = '<b>界面预览</b> · 未连接任何交易所，订单和成交都是本地模拟。在你的电脑上按 README 启动后，这里显示 OctoBot 和 Bitget 的真实数据。';
     else if (demo) msg = `<b>演示数据</b> · 桥接服务在线，但没有连上 OctoBot（${A.esc(L.octobot.error || '未启动')}）。启动 OctoBot 并选择策略后自动切换为真实数据。`;
+    else if (s.stale || !L.bridge.ok) msg = '<b>数据连接中断</b> · 正在重连，下面保留的是最后收到的账户数据。连接恢复后自动更新。';
     else if (s.mode === 'live') msg = '<b style="color:var(--bear)">实盘</b> · OctoBot 正在使用 Bitget 真实资金交易。紧急情况可在 OctoBot 控制台停止策略。';
     else if (s.strategy && s.strategy.stopped) msg = '<b style="color:var(--bear)">已触发止损</b> · 挂单已撤销、持币已卖成 USDT、交易已暂停。在「设置 → 交易方案」重新启动方案或手动选择策略后恢复。';
     else if (!L.octobot.ok) msg = `<b>OctoBot 重连中</b> · ${s.strategy && s.strategy.switching ? '正在切换策略，OctoBot 重启需要 1–3 分钟。' : '连接暂时中断。'}下面显示的是断开前的最后数据。`;
