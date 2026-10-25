@@ -48,7 +48,7 @@ class Settings:
         # Large language model for the AI market read (DeepSeek or any OpenAI compatible API)
         self.llm_api_key = os.getenv("LLM_API_KEY", "").strip()
         self.llm_base_url = (os.getenv("LLM_BASE_URL", "").strip() or "https://api.deepseek.com").rstrip("/")
-        self.llm_model = os.getenv("LLM_MODEL", "").strip() or "deepseek-chat"
+        self.llm_model = os.getenv("LLM_MODEL", "").strip() or "deepseek-flash"
         self.llm_proxy = os.getenv("LLM_PROXY", "").strip()
         self.ai_regime_period = float(os.getenv("AI_REGIME_PERIOD", "") or 1800)
 

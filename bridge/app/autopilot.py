@@ -80,7 +80,7 @@ class StrategyDesk:
         self.regime: dict | None = None
         self.regime_trail: list[str] = []
         self.ai_regime: dict | None = None
-        self.ai_trail: list[str] = []
+        self.ai_trail: list[dict] = []
         self.ai_error: str | None = None
         self.switching: dict | None = None
         self.cfg: dict = {
@@ -180,7 +180,7 @@ class StrategyDesk:
                     self.c.add_log("info", f"AI 行情判断：「{verdict['label']}」，建议 {label}"
                                            f"（置信度 {verdict['confidence']:.0%}）")
                 self.ai_regime, self.ai_error = verdict, None
-                self.ai_trail = (self.ai_trail + [verdict["regime"]])[-12:]
+                self.ai_trail = (self.ai_trail + [verdict])[-12:]
                 if self.cfg["scheme"] == "ai_regime":
                     await self.maybe_auto_switch()
             except asyncio.CancelledError:
@@ -304,7 +304,7 @@ class StrategyDesk:
         self.save()
         self._automation_key = None
 
-    def _verdict(self) -> tuple[dict | None, list[str], int, list[str]]:
+    def _verdict(self) -> tuple[dict | None, list[str] | list[dict], int, list[str]]:
         """(verdict, trail, confirmations needed, acceptable strategies) for the running scheme."""
         if self.cfg["scheme"] == "ai_regime":
             v = self.ai_regime
@@ -323,8 +323,16 @@ class StrategyDesk:
         current = self.c.profile.get("id")
         usable = {s["id"] for s in self.catalog if not s["blocked"]}
         target = next((p for p in ok if p in usable), None) if verdict else None
-        recent = trail[-need:]
-        confirmed = len(recent) == need and len(set(recent)) == 1
+        confirmations = 0
+        expected = ((verdict["regime"], verdict["strategy"])
+                    if scheme == "ai_regime" and verdict else
+                    verdict["regime"] if verdict else None)
+        for item in reversed(trail):
+            key = (item["regime"], item["strategy"]) if isinstance(item, dict) else item
+            if key != expected:
+                break
+            confirmations += 1
+        confirmed = confirmations >= need
         if scheme not in ("ai_regime", "rule_regime"):
             status = "当前方案不自动切换策略"
         elif cfg.get("stopped"):
@@ -336,7 +344,7 @@ class StrategyDesk:
         elif current in ok:
             status = "当前策略适合现在的行情，保持不变"
         elif not confirmed:
-            status = f"行情判断需连续 {need} 次一致（已 {trail.count(verdict['regime']) if trail[-1:] == [verdict['regime']] else 0} 次）"
+            status = f"行情判断需连续 {need} 次一致（已 {confirmations} 次）"
         elif verdict["confidence"] < 0.5:
             status = "行情判断置信度不足 50%，暂不切换"
         elif eligible_at and now_ms() < eligible_at:

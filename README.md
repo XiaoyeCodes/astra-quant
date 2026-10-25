@@ -81,7 +81,7 @@ Bitget 网站 → 头像 → **API 管理** → 创建 API：
 
 - 自动切换只在 **模拟盘** 下工作，每个策略至少运行 12 小时才会被换掉（`.env` 中可调）。
 - **止损**：从“启动方案时的资金”算起，亏损达到设定比例（连续约 9 秒确认）时，OctoBot 会 **撤销所有挂单 → 全部卖成 USDT → 停止策略并暂停交易**，并把配置改为“观望”，之后重启也不会恢复交易。重新启动方案或手动选择策略后恢复。OctoBot 内部同时设置了一条同样动作的自动化作为备用（驾驶舱或桥接服务停止时也生效，从 OctoBot 本次启动算起）。
-- **AI 功能**：在 `.env` 填 `LLM_API_KEY`（DeepSeek 的 Key，https://platform.deepseek.com ），然后重新运行 `start.bat`。同一个 Key 同时给 OctoBot 的 AI 策略和驾驶舱的 AI 行情判断使用，Key 只保存在你本机的 `.env`。`LLM_DAILY_TOKEN_LIMIT` 可以限制 OctoBot 每天的用量。
+- **AI 功能**：在 `.env` 填 `LLM_API_KEY`（DeepSeek 的 Key，https://platform.deepseek.com ），`LLM_MODEL` 默认使用 `deepseek-flash`，然后重新运行 `start.bat`。同一个 Key 同时给 OctoBot 的 AI 策略和驾驶舱的 AI 行情判断使用；AI 信号预设继承这个模型设置。Key 只保存在你本机的 `.env`。`LLM_DAILY_TOKEN_LIMIT` 可以限制 OctoBot 每天的用量。
 
 ### 4. 从模拟盘切换到实盘
 OctoBot → **Profile** 页面 → 交易设置中关闭 *Trader simulator*（模拟交易），打开 *Trader*（实盘交易）→ 保存并重启。不同版本的菜单位置可能略有不同，认准这两个开关即可。

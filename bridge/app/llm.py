@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import urllib.error
+import urllib.parse
 import urllib.request
 
 from .config import settings
@@ -65,13 +67,18 @@ def _post(body: dict) -> dict:
         with opener.open(req, timeout=60) as resp:
             return json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as err:
-        detail = err.read().decode("utf-8", errors="replace")[:160]
+        detail = err.read().decode("utf-8", errors="replace")
+        if settings.llm_api_key:
+            detail = detail.replace(settings.llm_api_key, "[REDACTED]")
+        detail = detail[:160]
         raise LLMError(f"HTTP {err.code}：{detail}") from err
     except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError) as err:
         raise LLMError(f"无法访问大模型接口（{getattr(err, 'reason', err)}）") from err
 
 
 def parse_answer(text: str, allowed: set[str]) -> dict:
+    if not isinstance(text, str):
+        raise LLMError("大模型返回的正文不是文本")
     start, end = text.find("{"), text.rfind("}")
     if start < 0 or end < start:
         raise LLMError("大模型没有返回 JSON")
@@ -79,17 +86,25 @@ def parse_answer(text: str, allowed: set[str]) -> dict:
         data = json.loads(text[start:end + 1])
     except json.JSONDecodeError as err:
         raise LLMError("大模型返回的 JSON 无法解析") from err
+    if not isinstance(data, dict):
+        raise LLMError("大模型返回的 JSON 必须是对象")
     regime = str(data.get("regime", "")).strip()
     strategy = str(data.get("strategy", "")).strip()
     if regime not in LABELS:
         raise LLMError(f"大模型给出了未知的行情状态：{regime or '空'}")
     if strategy not in allowed:
         raise LLMError(f"大模型选了不在候选列表里的策略：{strategy or '空'}")
+    raw_confidence = data.get("confidence")
     try:
-        confidence = min(1.0, max(0.0, float(data.get("confidence", 0))))
+        confidence = float(raw_confidence)
     except (TypeError, ValueError):
-        confidence = 0.0
-    reasons = [str(r)[:80] for r in data.get("reasons", []) if str(r).strip()][:3]
+        raise LLMError("大模型返回的置信度必须是 0–1 的有限数值") from None
+    if isinstance(raw_confidence, bool) or not math.isfinite(confidence) or not 0 <= confidence <= 1:
+        raise LLMError("大模型返回的置信度必须是 0–1 的有限数值")
+    raw_reasons = data.get("reasons", [])
+    if not isinstance(raw_reasons, list) or any(not isinstance(reason, str) for reason in raw_reasons):
+        raise LLMError("大模型返回的理由必须是文本列表")
+    reasons = [r.strip()[:80] for r in raw_reasons if r.strip()][:3]
     return {"regime": regime, "label": LABELS[regime], "confidence": round(confidence, 2),
             "strategy": strategy, "reasons": reasons}
 
@@ -105,11 +120,19 @@ async def judge(symbol: str, candles: list[list[float]], metrics: dict, choices:
         "max_tokens": 400,
         "response_format": {"type": "json_object"},
     }
+    if urllib.parse.urlparse(settings.llm_base_url).hostname == "api.deepseek.com":
+        # This bounded JSON classification does not need a reasoning trace. With
+        # DeepSeek's default thinking enabled, reasoning can exhaust max_tokens
+        # before any final JSON is returned.
+        body["thinking"] = {"type": "disabled"}
     res = await asyncio.to_thread(_post, body)
     try:
-        text = res["choices"][0]["message"]["content"]
+        choice = res["choices"][0]
+        text = choice["message"]["content"]
     except (KeyError, IndexError, TypeError) as err:
         raise LLMError("大模型返回格式异常") from err
+    if choice.get("finish_reason") == "length":
+        raise LLMError("大模型回答被 token 上限截断，本次判断已忽略")
     verdict = parse_answer(text, {c["id"] for c in choices})
     verdict["tokens"] = (res.get("usage") or {}).get("total_tokens")
     verdict["model"] = res.get("model", settings.llm_model)

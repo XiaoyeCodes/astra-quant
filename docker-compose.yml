@@ -14,7 +14,7 @@ services:
       # AI 策略用的大模型（.env 中的 LLM_*），OctoBot 原生读取这些环境变量
       OPENAI_SECRET_KEY: ${LLM_API_KEY:-}
       LLM_CUSTOM_BASE_URL: ${LLM_BASE_URL:-https://api.deepseek.com}
-      LLM_MODEL: ${LLM_MODEL:-deepseek-chat}
+      LLM_MODEL: ${LLM_MODEL:-deepseek-flash}
       GPT_DAILY_TOKEN_LIMIT: ${LLM_DAILY_TOKEN_LIMIT:-}
     ports:
       - "127.0.0.1:5001:5001"
