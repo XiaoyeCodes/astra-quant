@@ -14,6 +14,13 @@ from .config import settings
 # Exchanges whose OctoBot 2.1.1 tentacle supports futures. Bitget is spot only.
 FUTURES_EXCHANGES = {"binance", "bybit", "okx", "kucoin", "bingx", "bitmex", "coinbase"}
 
+# OctoBot 2.1.1's unauthenticated Coindesk news/market-cap feed returned HTTP 401
+# in the live-market paper test. Re-enable this preset after its full data and
+# allocation chain has been repaired and verified; a working LLM alone is insufficient.
+UNAVAILABLE_PRESETS = {
+    "astra_ai_index": "AI 仓位尚未通过测试：新闻/市值数据源返回 401，无法完成仓位决策。请先使用 AI 信号。",
+}
+
 # family: drives how the cockpit draws the strategy (grid band, DCA ladder, signals, basket, ai)
 # regimes: market regimes the strategy is suited to (see regime.py)
 META: dict[str, dict] = {
@@ -67,6 +74,8 @@ def describe(pid: str, data: dict) -> dict:
         blocked = f"OctoBot 的 {unsupported[0]} 插件不支持合约"
     elif not simulated:
         blocked = "这是实盘配置，只能在 OctoBot 中手动切换"
+    elif pid in UNAVAILABLE_PRESETS:
+        blocked = UNAVAILABLE_PRESETS[pid]
     else:
         blocked = None
     return {

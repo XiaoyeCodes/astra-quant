@@ -206,6 +206,8 @@ class StrategyDesk:
             return "正在切换策略，请等待 OctoBot 重启完成"
         if self._stopping:
             return "正在执行止损"
+        if self._connected_at and now_ms() - self._connected_at < 60 * 1000:
+            return "账户资产估值正在初始化，请在连接稳定 1 分钟后启动方案或切换策略"
         return None
 
     async def switch(self, pid: str, by: str = "user") -> str:
@@ -266,16 +268,23 @@ class StrategyDesk:
     async def start_scheme(self, scheme: str, ai_profile: str | None = None, stop_pct=None) -> str:
         if scheme not in SCHEMES:
             raise ValueError("没有这个方案")
+        reason = self.block_reason()
+        if reason:
+            raise ValueError(reason)
         if self.c._mode() == "live" or self.c.profile.get("real"):
             raise ValueError("当前为实盘：方案只能在模拟盘下启动")
+        if ai_profile is not None and ai_profile not in AI_TRADE_PROFILES:
+            raise ValueError("没有这个 AI 策略")
+        if scheme == "ai_trade":
+            target = await asyncio.to_thread(strategies.find, ai_profile or self.cfg["aiTradeProfile"])
+            if not target or target.get("blocked"):
+                raise ValueError(target.get("blocked") if target else "没有这个 AI 策略")
+        if scheme in ("ai_trade", "ai_regime") and not llm.available():
+            raise ValueError("未配置 LLM_API_KEY：请在 .env 中填写 DeepSeek 的 Key 后重新运行 start.bat")
         if stop_pct is not None:
             self.set_stop_loss(scheme, stop_pct)
         if ai_profile is not None:
-            if ai_profile not in AI_TRADE_PROFILES:
-                raise ValueError("没有这个 AI 策略")
             self.cfg["aiTradeProfile"] = ai_profile
-        if scheme in ("ai_trade", "ai_regime") and not llm.available():
-            raise ValueError("未配置 LLM_API_KEY：请在 .env 中填写 DeepSeek 的 Key 后重新运行 start.bat")
         self._arm(scheme)
         pct = self.cfg["stopLoss"].get(scheme, 0)
         self.c.add_log("risk", f"启动方案「{SCHEMES[scheme]}」，最大止损 {pct:g}%" if pct else
@@ -294,6 +303,8 @@ class StrategyDesk:
     def set_stop_loss(self, scheme: str, pct: float) -> None:
         if scheme not in SCHEMES:
             raise ValueError("没有这个方案")
+        if isinstance(pct, bool):
+            raise ValueError("止损比例需要是数字")
         try:
             pct = float(pct)
         except (TypeError, ValueError):
@@ -385,16 +396,16 @@ class StrategyDesk:
         """Called after each successful OctoBot poll."""
         c = self.c
         live = c.oct_equity_live
-        if self.cfg["baseline"] is None and live and c._mode() == "paper":
-            self.cfg["baseline"] = {"equity": live, "ts": now_ms(), "scheme": self.cfg["scheme"]}
-            self.save()
         if fresh_connection:
             self._connected_at = now_ms()
+        settling = now_ms() - self._connected_at < 60 * 1000
+        if self.cfg["baseline"] is None and live and c._mode() == "paper" and not settling:
+            self.cfg["baseline"] = {"equity": live, "ts": now_ms(), "scheme": self.cfg["scheme"]}
+            self.save()
         line = self.stop_line()
         breach = bool(line and live and live <= line)
         # right after a (re)start OctoBot may value the portfolio before every price is known:
         # ignore the first minute and require the breach on several polls in a row
-        settling = now_ms() - self._connected_at < 60 * 1000
         self._breaches = self._breaches + 1 if breach and not settling else 0
         armed = bool(line) and not self.cfg.get("stopped") and not self._stopping and c._mode() == "paper"
         if self._breaches >= STOP_CONFIRM_POLLS and armed:

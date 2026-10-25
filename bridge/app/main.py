@@ -43,10 +43,7 @@ async def focus_endpoint(request: Request) -> JSONResponse:
 async def _control(request: Request, action) -> JSONResponse:
     if not settings.enable_controls:
         return JSONResponse({"ok": False, "error": "紧急控制未开启（.env 中 ENABLE_CONTROLS=false）"}, status_code=403)
-    try:
-        body = await request.json()
-    except json.JSONDecodeError:
-        body = {}
+    body = await _json_body(request)
     if body.get("confirm") != CONFIRM_WORD:
         return JSONResponse({"ok": False, "error": f"请输入“{CONFIRM_WORD}”以执行该操作"}, status_code=400)
     try:
@@ -102,7 +99,7 @@ async def strategy_stoploss(request: Request) -> JSONResponse:
     body = await _json_body(request)
 
     async def apply() -> str:
-        cockpit.desk.set_stop_loss(str(body.get("scheme", "")), float(body.get("pct", 0)))
+        cockpit.desk.set_stop_loss(str(body.get("scheme", "")), body.get("pct"))
         return "已保存"
     return await _desk_call(apply())
 

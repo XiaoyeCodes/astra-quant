@@ -1,0 +1,8 @@
+{
+    "required_time_frames": [
+        "1h"
+    ],
+    "required_evaluators": [
+        "RSIMomentumEvaluator"
+    ]
+}
