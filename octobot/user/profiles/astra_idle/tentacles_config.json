@@ -1,0 +1,10 @@
+{
+    "tentacle_activation": {
+        "Trading": {
+            "BlankTradingMode": true
+        },
+        "Evaluator": {
+            "BlankStrategyEvaluator": true
+        }
+    }
+}

@@ -1,0 +1,20 @@
+{
+    "tentacle_activation": {
+        "Trading": {
+            "AIIndexTradingMode": true
+        },
+        "Evaluator": {
+            "ADXMomentumEvaluator": true,
+            "BBMomentumEvaluator": true,
+            "CryptoLLMAIStrategyEvaluator": true,
+            "CryptoNewsEvaluator": true,
+            "DoubleMovingAverageTrendEvaluator": true,
+            "EMADivergenceTrendEvaluator": true,
+            "FearAndGreedIndexEvaluator": true,
+            "GlobalLLMAIStrategyEvaluator": true,
+            "MACDMomentumEvaluator": true,
+            "MarketCapEvaluator": true,
+            "RSIMomentumEvaluator": true
+        }
+    }
+}

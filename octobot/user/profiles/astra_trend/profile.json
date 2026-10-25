@@ -1,0 +1,45 @@
+{
+    "config": {
+        "crypto-currencies": {
+            "Bitcoin": {
+                "enabled": true,
+                "pairs": [
+                    "BTC/USDT"
+                ]
+            }
+        },
+        "exchanges": {
+            "bitget": {
+                "enabled": true,
+                "exchange-type": "spot"
+            }
+        },
+        "trader": {
+            "enabled": false,
+            "load-trade-history": true
+        },
+        "trader-simulator": {
+            "enabled": true,
+            "fees": {
+                "maker": 0.1,
+                "taker": 0.1
+            },
+            "starting-portfolio": {
+                "USDT": 1000
+            }
+        },
+        "trading": {
+            "reference-market": "USDT",
+            "risk": 0.5
+        }
+    },
+    "profile": {
+        "avatar": "default_profile.png",
+        "complexity": 2,
+        "description": "ASTRA 预设：Bitget 现货 BTC/USDT 趋势跟随（OctoBot DailyTrading）。综合 1h/4h/1d 的双均线与 RSI 信号顺势买卖，带止损单，适合明确的趋势行情；震荡市容易反复止损。默认模拟盘。",
+        "id": "astra_trend",
+        "name": "ASTRA · 趋势指标 BTC",
+        "read_only": false,
+        "risk": 2
+    }
+}

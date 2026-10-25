@@ -54,6 +54,7 @@
   A.Pulse.init(A.$('book'), A.$('pulseChart'));
   A.Graph.init(A.$('graph'));
   A.Panels.init();
+  A.Strategy.init();
   activate(A.viewStyle === 'holo' ? 'holo' : 'halo');
   camUI();
   A.$('trackToggle').addEventListener('click', () => A.Views.setTrack(!A.holoTrack));
@@ -65,6 +66,7 @@
     A.Lattice.update(s);
     A.Pulse.update(s);
     A.Graph.update(s);
+    A.Strategy.update(s);
   });
 
   A.feed.start();

@@ -23,6 +23,18 @@ if not exist ".env" (
 )
 if not exist "data" mkdir "data"
 
+rem OctoBot 2.1.1 skips installing its plugins when Docker has already created an empty
+rem octobot\tentacles folder, then crashes in a loop (KeyError: 'default'). Install them once.
+if not exist "octobot\tentacles\Trading" (
+  echo [i] 第一次运行：安装 OctoBot 插件（需要下载，约 1-3 分钟）...
+  docker compose run --rm --no-deps octobot tentacles --install --all
+  if errorlevel 1 (
+    echo [X] 插件安装失败。常见原因：网络无法访问 tentacles.octobot.online。请看 README 的“常见问题”。
+    pause
+    exit /b 1
+  )
+)
+
 echo [1/2] 正在启动 OctoBot 和驾驶舱（第一次需要下载镜像，可能要几分钟）...
 docker compose up -d --build
 if errorlevel 1 (

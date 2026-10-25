@@ -83,7 +83,9 @@
     if (demo && !L.bridge.version) msg = '<b>界面预览</b> · 未连接任何交易所，订单和成交都是本地模拟。在你的电脑上按 README 启动后，这里显示 OctoBot 和 Bitget 的真实数据。';
     else if (demo) msg = `<b>演示数据</b> · 桥接服务在线，但没有连上 OctoBot（${A.esc(L.octobot.error || '未启动')}）。启动 OctoBot 并选择策略后自动切换为真实数据。`;
     else if (s.mode === 'live') msg = '<b style="color:var(--bear)">实盘</b> · OctoBot 正在使用 Bitget 真实资金交易。紧急情况可在 OctoBot 控制台停止策略。';
-    else if (s.mode === 'idle') msg = '<b>待机</b> · OctoBot 已连接，但还没有挂单或成交。请在 OctoBot 控制台选择策略配置并开始交易。';
+    else if (s.strategy && s.strategy.stopped) msg = '<b style="color:var(--bear)">已触发止损</b> · 挂单已撤销、持币已卖成 USDT、交易已暂停。在「设置 → 交易方案」重新启动方案或手动选择策略后恢复。';
+    else if (!L.octobot.ok) msg = `<b>OctoBot 重连中</b> · ${s.strategy && s.strategy.switching ? '正在切换策略，OctoBot 重启需要 1–3 分钟。' : '连接暂时中断。'}下面显示的是断开前的最后数据。`;
+    else if (s.mode === 'idle') msg = '<b>待机</b> · OctoBot 已连接，但还没有挂单或成交。可以在「设置 → 交易方案」选择方案或策略。';
     b.hidden = !msg;
     if (msg) b.innerHTML = msg;
   }
@@ -174,22 +176,80 @@
     $('rkLiq').className = liq !== null && liq < 10 ? 'neg' : '';
     const expo = pos.reduce((a, p) => a + Math.abs(p.size * (p.mark || p.entry || 0)), 0);
     $('rkExpo').textContent = pos.length ? A.fmtCompact(expo) : '—';
-    // where the price sits inside the focus symbol's grid
-    const os = s.orders.filter((o) => o.symbol === sym && !/STOP|LOSS|TAKE/.test(o.type));
-    if (os.length > 1 && px) {
-      const lo = Math.min(...os.map((o) => o.price)), hi = Math.max(...os.map((o) => o.price));
-      const t = A.clamp((px - lo) / (hi - lo || 1), 0, 1);
-      $('gbBuy').style.width = (t * 100) + '%'; $('gbSell').style.width = ((1 - t) * 100) + '%';
-      $('gbMark').style.left = (t * 100) + '%';
-      $('gbLo').textContent = A.fmtCompact(lo); $('gbHi').textContent = A.fmtCompact(hi);
-      $('gbPct').textContent = `网格位置 ${Math.round(t * 100)}%`;
-    } else {
-      $('gbBuy').style.width = '0'; $('gbSell').style.width = '0'; $('gbMark').style.left = '50%';
-      $('gbLo').textContent = '—'; $('gbHi').textContent = '—'; $('gbPct').textContent = '当前交易对无网格挂单';
-    }
     const p = s.profile || {};
-    const mode = (p.tradingMode || '').replace(/TradingMode/g, '').replace(/\s*·\s*/g, ' + ') || '未连接策略';
+    renderStratBar(s, p, sym, px);
+    const mode = p.label || (p.tradingMode || '').replace(/TradingMode/g, '').replace(/\s*·\s*/g, ' + ') || '未连接策略';
     $('stratMeta').textContent = `${mode} · ${p.exchangeType === 'future' ? '合约' : '现货'}`;
+    renderSchemeLine(s.strategy);
+  }
+
+  // what the bar under the risk card shows depends on the kind of strategy running
+  function stratFamily(p) {
+    if (p.family) return p.family;
+    const tm = p.tradingMode || '';
+    return /Grid|Staggered/.test(tm) ? 'grid' : /DCA/.test(tm) ? 'dca' : 'other';
+  }
+
+  function setBar(lo, hi, t, label) {
+    const has = t !== null;
+    $('gbBuy').style.width = has ? (t * 100) + '%' : '0';
+    $('gbSell').style.width = has ? ((1 - t) * 100) + '%' : '0';
+    $('gbMark').style.left = has ? (t * 100) + '%' : '50%';
+    $('gbLo').textContent = lo === null ? '—' : A.fmtCompact(lo);
+    $('gbHi').textContent = hi === null ? '—' : A.fmtCompact(hi);
+    $('gbPct').textContent = label;
+  }
+
+  function renderStratBar(s, p, sym, px) {
+    const fam = stratFamily(p);
+    const os = s.orders.filter((o) => o.symbol === sym);
+    const pct = (v) => ((v - px) / px * 100);
+    if (fam === 'grid') {
+      const g = os.filter((o) => !/STOP|LOSS|TAKE/.test(o.type));
+      if (g.length > 1 && px) {
+        const lo = Math.min(...g.map((o) => o.price)), hi = Math.max(...g.map((o) => o.price));
+        const t = A.clamp((px - lo) / (hi - lo || 1), 0, 1);
+        return setBar(lo, hi, t, `网格位置 ${Math.round(t * 100)}%`);
+      }
+      return setBar(null, null, null, '当前交易对无网格挂单');
+    }
+    if (fam === 'dca') {
+      const buys = os.filter((o) => o.side === 'buy').map((o) => o.price);
+      const sells = os.filter((o) => o.side === 'sell').map((o) => o.price);
+      if (!px || (!buys.length && !sells.length)) return setBar(null, null, null, '等待开仓信号');
+      const below = buys.filter((b) => b < px), above = sells.filter((x) => x > px);
+      const next = below.length ? Math.max(...below) : null, tp = above.length ? Math.min(...above) : null;
+      const lo = buys.length ? Math.min(...buys) : px, hi = tp || px;
+      const t = hi > lo ? A.clamp((px - lo) / (hi - lo), 0, 1) : null;
+      const parts = [];
+      if (next) parts.push(`下一档补仓 ${A.fmtPct(pct(next))}`);
+      if (tp) parts.push(`止盈 ${A.fmtPct(pct(tp))}`);
+      return setBar(lo, hi, t, parts.join(' · ') || `补仓档 ${buys.length}`);
+    }
+    const label = { idle: '观望中：不下新单', ai: 'AI 决定买卖与仓位', index: '按权重持有，偏离时再平衡' }[fam] || '按指标信号交易，无固定区间';
+    if (os.length && px) {
+      const near = os.reduce((a, o) => (Math.abs(o.price - px) < Math.abs(a.price - px) ? o : a));
+      return setBar(null, null, null, `${label} · 最近挂单 ${A.fmtPct(pct(near.price))}`);
+    }
+    return setBar(null, null, null, label);
+  }
+
+  const SCHEME_SHORT = { manual: '手动', ai_trade: 'AI 交易', ai_regime: 'AI 选策略', rule_regime: '指标选策略' };
+  function renderSchemeLine(st) {
+    const el = $('rkScheme');
+    if (!st) { el.textContent = '演示模式'; el.className = 'rk-scheme num'; return; }
+    const pct = st.stopLoss[st.scheme] || 0;
+    let txt = `方案 ${SCHEME_SHORT[st.scheme] || st.scheme}`, cls = '';
+    if (st.stopped) { txt += ' · 已触发止损，交易已停止'; cls = 'neg'; }
+    else if (st.stopping) { txt += ' · 正在执行止损'; cls = 'neg'; }
+    else if (pct && st.stopLine) {
+      const room = st.drawdown === null || st.drawdown === undefined ? null : pct - st.drawdown;
+      txt += ` · 止损线 ${A.fmt(st.stopLine, 0)}${room !== null ? `（距 ${room.toFixed(1)}%）` : ''}`;
+      if (room !== null && room < pct * 0.3) cls = 'neg';
+    } else txt += ' · 未设止损';
+    if (st.switching) txt += ` · 切换到 ${st.switching.label}…`;
+    el.textContent = txt;
+    el.className = 'rk-scheme num ' + cls;
   }
 
   function setPill(id, txt, v) {
@@ -245,7 +305,7 @@
       rows = (s.positions || []).map((p) => `<tr><td>${A.esc(p.symbol)}</td><td class="side-${p.side === 'short' ? 'sell' : 'buy'}">${p.side === 'short' ? '空' : '多'}</td>
           <td class="r">${A.fmtAmt(p.size)}</td><td class="r">${A.fmtPx(p.entry)}</td><td class="r">${p.mark ? A.fmtPx(p.mark) : '—'}</td>
           <td class="r ${A.signCls(p.upnl)}">${A.fmtSigned(p.upnl)}</td><td class="r">${p.liq ? A.fmtPx(p.liq) : '—'}</td><td class="r">${p.leverage ? p.leverage + 'x' : '—'}</td></tr>`).join('')
-        || '<tr><td colspan="8" class="empty">没有持仓。现货网格的持币不算合约持仓，合约策略开仓后显示在这里。</td></tr>';
+        || '<tr><td colspan="8" class="empty">没有合约持仓。现货策略买入的币计入总权益，不算合约持仓。</td></tr>';
     } else {
       head = '<tr><th>时间</th><th>交易对</th><th>方向</th><th class="r">价格</th><th class="r">数量</th><th class="r">金额</th><th class="r">手续费</th></tr>';
       rows = s.trades.slice().reverse().slice(0, 120).map((t) => `<tr><td>${t.time ? A.mdhm(t.time) : '—'}</td><td>${A.esc(t.symbol)}</td>

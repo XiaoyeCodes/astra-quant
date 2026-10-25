@@ -14,6 +14,8 @@ import time
 from typing import Any
 
 from . import octobot_client as octo
+from . import strategies
+from .autopilot import StrategyDesk
 from .bitget_client import BitgetClient
 from .config import VERSION, settings
 
@@ -121,7 +123,11 @@ class Cockpit:
         self.oct_trades: list[dict] = []
         self.oct_positions: list[dict] = []
         self.oct_closed: list[dict] = []
-        self.oct_equity: float | None = None  # portfolio value reported by OctoBot
+        self.oct_equity: float | None = None  # last portfolio value reported by OctoBot (display)
+        self.oct_equity_live: float | None = None  # value from the latest poll only (risk decisions)
+
+        # strategies, schemes, market radar and stop-loss
+        self.desk = StrategyDesk(self)
 
         # Bitget account
         self.account: dict = {}
@@ -134,8 +140,12 @@ class Cockpit:
         self._log_seq = 0
         self._seen_trades: set[str] = set()
         self._seen_orders: set[str] = set()
-        self._last_fill_ms = 0  # newest fill already reported; OctoBot re-sends old fills after a restart
+        # newest fill already reported; OctoBot re-sends old fills after a restart, and anything older
+        # than this bridge's own start is history too
+        self._last_fill_ms = now_ms() - 60 * 1000
         self._first_octo_sync = True
+        self._last_octo_mode: str | None = None
+        self._octo_lost_at: int | None = None
         self._last_equity_sample = 0.0
         self._last_persist = 0.0
         self._load_history()
@@ -209,7 +219,7 @@ class Cockpit:
         self.add_log("info", f"桥接服务 v{VERSION} 启动，OctoBot 地址 {settings.octobot_url}")
         if not settings.bitget_private:
             self.add_log("info", "未配置 Bitget API 密钥：只读取公开行情，账户数据来自 OctoBot")
-        loops = [self._loop_market, self._loop_candles, self._loop_octobot]
+        loops = [self._loop_market, self._loop_candles, self._loop_octobot, self.desk.loop_rule, self.desk.loop_ai]
         if settings.bitget_private:
             loops.append(self._loop_private)
         self.tasks = [asyncio.create_task(fn()) for fn in loops]
@@ -280,7 +290,9 @@ class Cockpit:
                             pass
                     self.link_octobot["since"] = since.strip('"')
                     self.profile = await asyncio.to_thread(octo.read_active_profile)
+                    self.desk.catalog = await asyncio.to_thread(strategies.catalog)
                     self._reset_history_on_profile_change()
+                    self.desk.check_switch_done()
                 orders, trades, positions = await asyncio.gather(octo.orders(), octo.trades(), octo.positions())
                 if tick % 3 == 0:
                     try:
@@ -288,19 +300,24 @@ class Cockpit:
                     except octo.OctoBotError:
                         pass
                 try:
-                    self.oct_equity = await octo.portfolio_value(self.profile.get("referenceMarket", "USDT"))
+                    self.oct_equity_live = await octo.portfolio_value(self.profile.get("referenceMarket", "USDT"))
                 except octo.OctoBotError:
-                    self.oct_equity = None
+                    self.oct_equity_live = None
+                if self.oct_equity_live is not None:
+                    self.oct_equity = self.oct_equity_live
                 self._ingest_octobot(orders, trades, positions)
-                if not self.link_octobot["ok"]:
+                fresh = not self.link_octobot["ok"]
+                if fresh:
                     self.add_log("ok", f"OctoBot 已连接 {self.link_octobot.get('version') or ''}".strip())
                 self.link_octobot.update(ok=True, error=None)
+                await self.desk.on_octobot_sync(fresh)
             except asyncio.CancelledError:
                 raise
             except Exception as err:
                 msg = str(err)[:180]
                 if self.link_octobot["ok"]:
                     self.add_log("warn", f"OctoBot 连接中断：{msg}")
+                    self._octo_lost_at = now_ms()
                 self.link_octobot.update(ok=False, error=msg)
             tick += 1
             await asyncio.sleep(settings.octobot_period if self.link_octobot["ok"] else 6)
@@ -436,15 +453,26 @@ class Cockpit:
         return out[-500:]
 
     # ------------------------------------------------------------- state ---
+    def _octo_stale(self) -> bool:
+        """OctoBot dropped out briefly (restart, strategy switch): keep showing its last data."""
+        if self.link_octobot["ok"] or not self._last_octo_mode or self._octo_lost_at is None:
+            return False
+        return bool(self.desk.switching) or now_ms() - self._octo_lost_at < 15 * 60 * 1000
+
     def _mode(self) -> str:
         if self.link_octobot["ok"]:
             sources = {x.get("source") for x in self.oct_orders + self.oct_trades + self.oct_positions}
             # OctoBot only reports "Virtual" / "Inactive" orders for the real trader
             if sources & {"Real", "Virtual", "Inactive"} or self.profile.get("real"):
-                return "live"
-            if "Simulated" in sources or self.profile.get("simulated"):
-                return "paper"
-            return "idle"
+                mode = "live"
+            elif "Simulated" in sources or self.profile.get("simulated"):
+                mode = "paper"
+            else:
+                mode = "idle"
+            self._last_octo_mode = mode
+            return mode
+        if self._octo_stale():
+            return self._last_octo_mode
         if settings.bitget_private and self.account and not self.account.get("errors"):
             return "watch"
         return "demo"
@@ -509,7 +537,7 @@ class Cockpit:
 
     def snapshot(self) -> dict:
         mode = self._mode()
-        use_octo = self.link_octobot["ok"]
+        use_octo = self.link_octobot["ok"] or self._octo_stale()
         orders = self.oct_orders if use_octo else self.account.get("orders", [])
         trades = self.oct_trades if use_octo else self.account.get("trades", [])
         positions = list(self.oct_positions if use_octo and self.oct_positions else self.account.get("positions", []))
@@ -543,6 +571,8 @@ class Cockpit:
                 "bitget": self.link_bitget,
             },
             "profile": self.profile,
+            "strategy": self.desk.snapshot(),
+            "regime": self.desk.regime,
             "focus": {"symbol": self.focus, "type": "swap" if ":" in self.focus else "spot"},
             "symbols": self.watch_symbols(),
             "ticker": self.ticker,

@@ -6,7 +6,9 @@ dependency. Endpoints used (OctoBot web interface, login disabled):
   GET  /api/orders, /api/trades, /api/positions, /api/pnl_history
   GET  /api/historical_portfolio_value
   POST /api/orders?action=cancel_orders   (body: list of order ids)
-  GET  /commands/stop
+  GET  /commands/stop, /commands/restart
+  GET  /profile?select=<id>                (strategy switch, paper profiles only)
+  POST /automations?action=save|start      (stop-loss: cancel, sell all, pause)
 """
 from __future__ import annotations
 
@@ -16,9 +18,11 @@ import json
 import os
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from typing import Any
 
+from . import strategies
 from .config import settings
 
 
@@ -99,9 +103,10 @@ async def portfolio_value(currency: str) -> float | None:
     if not isinstance(res, list) or not res:
         return None
     try:
-        return float(res[-1]["value"])
+        value = float(res[-1]["value"])
     except (KeyError, TypeError, ValueError):
         return None
+    return value if value > 0 else None  # OctoBot reports 0 while it starts up
 
 
 async def cancel_orders(order_ids: list[str]) -> str:
@@ -111,6 +116,30 @@ async def cancel_orders(order_ids: list[str]) -> str:
 
 async def stop_bot() -> str:
     res = await call("GET", "/commands/stop")
+    return str(res)
+
+
+async def select_profile(profile_id: str) -> None:
+    """Same call as picking a profile in OctoBot's web page; it is saved to config.json.
+
+    OctoBot only knows the profiles it loaded at startup (HTTP 500 otherwise).
+    The redirect goes to a JSON endpoint so the reply is easy to check.
+    """
+    await call("GET", f"/profile?select={urllib.parse.quote(profile_id)}&next=/api/version")
+
+
+async def save_automations(config: dict) -> None:
+    """Replace the Automation config of the active profile (stop-loss)."""
+    await call("POST", "/automations?action=save", config)
+
+
+async def start_automations() -> None:
+    """(Re)start automations with the saved config, without restarting OctoBot."""
+    await call("POST", "/automations?action=start", {})
+
+
+async def restart_bot() -> str:
+    res = await call("GET", "/commands/restart")
     return str(res)
 
 
@@ -165,9 +194,12 @@ def read_active_profile() -> dict:
     # OctoBot rewrites this file with every exchange tentacle activated too, so keep trading modes only
     modes = [k for k, v in tentacles.get("tentacle_activation", {}).get("Trading", {}).items()
              if v and k.endswith("TradingMode")]
+    strategy = strategies.META.get(meta.get("id", wanted), {})
     return {
         "id": meta.get("id", wanted),
         "name": meta.get("name", wanted),
+        "label": strategy.get("label"),
+        "family": strategy.get("family"),
         "exchanges": enabled_ex,
         "exchangeType": "future" if ex_type == "future" else "spot",
         "pairs": pairs,

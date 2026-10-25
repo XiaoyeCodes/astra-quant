@@ -1,0 +1,13 @@
+{
+    "tentacle_activation": {
+        "Trading": {
+            "SignalTradingMode": true
+        },
+        "Evaluator": {
+            "BBMomentumEvaluator": true,
+            "InstantFluctuationsEvaluator": true,
+            "KlingerOscillatorMomentumEvaluator": true,
+            "MoveSignalsStrategyEvaluator": true
+        }
+    }
+}

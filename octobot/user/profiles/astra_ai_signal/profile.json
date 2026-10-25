@@ -1,0 +1,45 @@
+{
+    "config": {
+        "crypto-currencies": {
+            "Bitcoin": {
+                "enabled": true,
+                "pairs": [
+                    "BTC/USDT"
+                ]
+            }
+        },
+        "exchanges": {
+            "bitget": {
+                "enabled": true,
+                "exchange-type": "spot"
+            }
+        },
+        "trader": {
+            "enabled": false,
+            "load-trade-history": true
+        },
+        "trader-simulator": {
+            "enabled": true,
+            "fees": {
+                "maker": 0.1,
+                "taker": 0.1
+            },
+            "starting-portfolio": {
+                "USDT": 1000
+            }
+        },
+        "trading": {
+            "reference-market": "USDT",
+            "risk": 0.5
+        }
+    },
+    "profile": {
+        "avatar": "default_profile.png",
+        "complexity": 2,
+        "description": "ASTRA 预设：大模型（DeepSeek）每小时读取 BTC/USDT K 线给出看涨/看跌信号，看涨且置信度达标时按补仓规则买入（每次 8% 资金，下方 1.3% 再补一单），上方 2% 分批止盈。需要在 .env 填 LLM_API_KEY。默认模拟盘。",
+        "id": "astra_ai_signal",
+        "name": "ASTRA · AI 信号 BTC",
+        "read_only": false,
+        "risk": 2
+    }
+}

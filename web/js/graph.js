@@ -59,6 +59,7 @@
   /* ------------------------------------------------------ build model -- */
   const isSwap = (sym) => sym.includes(':');
   function stratLabel(prof, swap) {
+    if (prof.label) return prof.label;
     const tm = (prof.tradingMode || '');
     const grid = /Grid/i.test(tm), dca = /DCA/i.test(tm);
     if (grid && dca) return swap ? '合约分批补仓' : '现货网格';

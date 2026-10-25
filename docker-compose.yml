@@ -10,6 +10,12 @@ services:
       - ./octobot/tentacles:/octobot/tentacles
       - ./octobot/logs:/octobot/logs
       - ./octobot/backtesting:/octobot/backtesting
+    environment:
+      # AI 策略用的大模型（.env 中的 LLM_*），OctoBot 原生读取这些环境变量
+      OPENAI_SECRET_KEY: ${LLM_API_KEY:-}
+      LLM_CUSTOM_BASE_URL: ${LLM_BASE_URL:-https://api.deepseek.com}
+      LLM_MODEL: ${LLM_MODEL:-deepseek-chat}
+      GPT_DAILY_TOKEN_LIMIT: ${LLM_DAILY_TOKEN_LIMIT:-}
     ports:
       - "127.0.0.1:5001:5001"
     # 驾驶舱的“紧急停止”会让 OctoBot 正常退出；on-failure 保证它不会被自动拉起

@@ -1,0 +1,45 @@
+{
+    "config": {
+        "crypto-currencies": {
+            "Bitcoin": {
+                "enabled": true,
+                "pairs": [
+                    "BTC/USDT"
+                ]
+            }
+        },
+        "exchanges": {
+            "bitget": {
+                "enabled": true,
+                "exchange-type": "spot"
+            }
+        },
+        "trader": {
+            "enabled": false,
+            "load-trade-history": true
+        },
+        "trader-simulator": {
+            "enabled": true,
+            "fees": {
+                "maker": 0.1,
+                "taker": 0.1
+            },
+            "starting-portfolio": {
+                "USDT": 1000
+            }
+        },
+        "trading": {
+            "reference-market": "USDT",
+            "risk": 0.5
+        }
+    },
+    "profile": {
+        "avatar": "default_profile.png",
+        "complexity": 2,
+        "description": "ASTRA 预设：Bitget 现货 BTC/USDT 智能补仓（OctoBot Smart DCA）。4 小时 EMA 显示超跌时才入场，每次 5% 资金、最多 3 档，小幅反弹分两批止盈，适合上升趋势中的回调。无止损。默认模拟盘。",
+        "id": "astra_smart_dca",
+        "name": "ASTRA · 智能补仓 BTC",
+        "read_only": false,
+        "risk": 2
+    }
+}

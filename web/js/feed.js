@@ -101,6 +101,16 @@
     return data.result;
   };
 
+  /* strategy desk: /api/strategy/<action>; resolves with the reply, rejects with the bridge's message */
+  feed.strategy = async function (action, body) {
+    if (feed.usingDemo) throw new Error('演示模式：连接 OctoBot 后才能操作');
+    const res = await fetch(`/api/strategy/${action}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
+    let data = {};
+    try { data = await res.json(); } catch (e) { /* ignore */ }
+    if (!res.ok || !data.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    return data;
+  };
+
   feed.start = async function () {
     const servedByBridge = /^https?:$/.test(location.protocol) && !/claude|anthropic|usercontent/.test(location.hostname);
     if (!servedByBridge) { useDemo(true); return; }
