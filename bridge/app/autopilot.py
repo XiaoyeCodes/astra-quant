@@ -45,6 +45,12 @@ PAUSE_ACTIONS = ["StopStrategiesAndPauseTrader"]
 DUST_VALUE = 1.0  # holdings worth less than this (in the reference market) count as sold
 CLEAR_TIMEOUT = 60  # seconds to wait for orders cancelled and holdings sold
 IDLE_PROFILE = "astra_idle"
+# What happens to coins already held when the running strategy changes
+HANDOVER = {
+    "flatten_on_idle": "切到观望时卖出全部持币，切到其他策略时保留",
+    "keep": "保留持币，交给下一个策略（观望时仍然持有）",
+    "flatten": "每次切换都先卖出全部持币，新策略从纯 USDT 开始",
+}
 STOP_CONFIRM_POLLS = 3  # consecutive polls below the stop line before stopping (about 9 s)
 PAUSED_CONFIRM_POLLS = 5  # polls without any portfolio value: OctoBot paused itself (backup stop)
 # Nothing trades while OctoBot is offline. A larger equity jump across a gap means OctoBot reset
@@ -98,8 +104,10 @@ class StrategyDesk:
             "baseline": None,   # {"equity", "ts", "scheme"}
             "stopped": None,    # {"ts", "equity", "baseline", "pct", "scheme"}
             "lastSwitch": None, "lastSwitchTo": None,
+            "handover": "flatten_on_idle",
         }
         self._stopping = False
+        self._handing_over = False
         self._breaches = 0
         self._blind = 0
         self._connected_at = 0
@@ -221,6 +229,8 @@ class StrategyDesk:
             return "正在切换策略，请等待 OctoBot 重启完成"
         if self._stopping:
             return "正在执行止损"
+        if self._handing_over:
+            return "正在按交接规则卖出持币"
         if self._connected_at and now_ms() - self._connected_at < 60 * 1000:
             return "账户资产估值正在初始化，请在连接稳定 1 分钟后启动方案或切换策略"
         return None
@@ -240,6 +250,7 @@ class StrategyDesk:
         current = c.profile.get("id")
         if pid == current:
             raise ValueError("已经在运行这个策略")
+        handover_note = await self._handover(pid)
         await octo.select_profile(pid)
         selected = (await asyncio.to_thread(octo.read_active_profile)).get("id")
         if selected != pid:
@@ -250,8 +261,47 @@ class StrategyDesk:
         self.cfg.update(lastSwitch=now_ms(), lastSwitchTo=pid)
         self.save()
         who = {"auto": "自动切换", "scheme": "启动方案，切换"}.get(by, "手动切换")
-        c.add_log("risk", f"{who}策略：{c.profile.get('label') or current} → {target['label']}，OctoBot 正在重启")
-        return f"已切换到 {target['label']}，OctoBot 重启需要 1–3 分钟"
+        c.add_log("risk", f"{who}策略：{c.profile.get('label') or current} → {target['label']}，OctoBot 正在重启"
+                          + (f"；{handover_note}" if handover_note else ""))
+        return f"已切换到 {target['label']}，OctoBot 重启需要 1–3 分钟" + (f"（{handover_note}）" if handover_note else "")
+
+    def set_handover(self, policy: str) -> None:
+        if policy not in HANDOVER:
+            raise ValueError("没有这个交接规则")
+        self.cfg["handover"] = policy
+        self.save()
+        self.c.add_log("info", f"交接规则改为：{HANDOVER[policy]}")
+
+    def _flatten_for(self, pid: str) -> bool:
+        policy = self.cfg.get("handover", "flatten_on_idle")
+        return policy == "flatten" or (policy == "flatten_on_idle" and pid == IDLE_PROFILE)
+
+    async def _handover(self, pid: str) -> str | None:
+        """Sell the coins the old strategy leaves behind when the rule asks for it (verified)."""
+        if not self._flatten_for(pid):
+            return None
+        quote = self.c.profile.get("referenceMarket", "USDT")
+        before = await self._liquidation_status(quote)
+        if before["known"] and not before["leftovers"] and not before["orders"]:
+            return None  # nothing to hand over
+        self._handing_over = True
+        try:
+            sold_at = time.time()
+            status = await self._clear_positions(quote)
+            saved = await self._wait_paper_saved(sold_at) if self.c._mode() == "paper" else True
+        finally:
+            self._handing_over = False
+        if status["known"] and not status["orders"] and not status["leftovers"]:
+            note = f"交接规则：已卖出全部持币，只剩 {quote}（{status['equity']:.2f}）"
+            if not saved:
+                self.c.add_log("risk", "OctoBot 30 秒内没有保存卖出后的模拟账户，重启后可能恢复成卖出前的持币，请切换后检查")
+                note += "；OctoBot 未及时保存模拟账户，请检查持仓"
+            return note
+        problem = ("无法读取持仓，未能确认是否已卖出" if not status["known"] else
+                   f"仍有 {status['orders']} 张挂单" if status["orders"] else
+                   "仍有持币未卖出：" + "、".join(f"{k} {v:g}" for k, v in status["leftovers"].items()))
+        self.c.add_log("risk", f"交接清仓未完成：{problem}。切换仍会进行，请到 OctoBot 检查持仓")
+        return f"交接清仓未完成：{problem}"
 
     def check_switch_done(self) -> None:
         sw = self.switching
@@ -512,6 +562,37 @@ class StrategyDesk:
         return {"known": True, "orders": len(orders), "leftovers": leftovers,
                 "equity": sum(h["value"] for h in held.values())}
 
+    async def _wait_paper_saved(self, since: float, timeout: float = 30) -> bool:
+        """Wait until OctoBot has written the paper portfolio after `since` (it reloads it on restart)."""
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            stamp = await asyncio.to_thread(octo.paper_snapshot_time)
+            if stamp is not None and stamp >= since:
+                return True
+            await asyncio.sleep(1)
+        return False
+
+    async def _clear_positions(self, quote: str) -> dict:
+        """Cancel and sell every second until OctoBot shows no order and only the quote currency
+        (twice in a row) or CLEAR_TIMEOUT passes; then remove the automation. Returns the last status."""
+        status = {"known": False, "orders": None, "leftovers": {}, "equity": None}
+        await octo.save_automations(automation_config(immediate=True, actions=CLEAR_ACTIONS))
+        await octo.start_automations()
+        try:
+            clean_polls, deadline = 0, now_ms() + CLEAR_TIMEOUT * 1000
+            while now_ms() < deadline:
+                await asyncio.sleep(2)
+                status = await self._liquidation_status(quote)
+                clean = status["known"] and not status["orders"] and not status["leftovers"]
+                clean_polls = clean_polls + 1 if clean else 0
+                if clean_polls >= 2:
+                    break
+        finally:
+            await octo.save_automations(automation_config())
+            await octo.start_automations()
+            self._automation_key = None  # the safety net is pushed again on the next sync
+        return status
+
     async def execute_stop(self, reason: str | None = None) -> None:
         """Cancel, sell everything, verify it really happened, then pause and park on 观望."""
         c = self.c
@@ -529,16 +610,7 @@ class StrategyDesk:
         status = {"known": False, "orders": None, "leftovers": {}}
         try:
             # 1. cancel and sell every second (also undoes orders a strategy re-creates)
-            await octo.save_automations(automation_config(immediate=True, actions=CLEAR_ACTIONS))
-            await octo.start_automations()
-            clean_polls, deadline = 0, now_ms() + CLEAR_TIMEOUT * 1000
-            while now_ms() < deadline:
-                await asyncio.sleep(2)
-                status = await self._liquidation_status(quote)
-                clean = status["known"] and not status["orders"] and not status["leftovers"]
-                clean_polls = clean_polls + 1 if clean else 0
-                if clean_polls >= 2:
-                    break
+            status = await self._clear_positions(quote)
             # 2. pause trading whatever the outcome, so a failed sale cannot keep trading
             await octo.save_automations(automation_config(immediate=True, actions=PAUSE_ACTIONS))
             await octo.start_automations()
@@ -585,6 +657,9 @@ class StrategyDesk:
             "aiTradeProfile": cfg["aiTradeProfile"],
             "aiTradeProfiles": list(AI_TRADE_PROFILES),
             "stopLoss": cfg["stopLoss"],
+            "handover": cfg.get("handover", "flatten_on_idle"),
+            "handoverOptions": HANDOVER,
+            "backtest": strategies.BACKTEST,
             "baseline": cfg.get("baseline"),
             "stopLine": self.stop_line(),
             "drawdown": (1 - equity / base) * 100 if equity and base else None,

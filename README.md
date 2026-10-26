@@ -110,6 +110,10 @@ OctoBot 短暂断开（重启、切换策略）时，驾驶舱保留断开前的
 
 顶部状态：`演示 DEMO`（未连接 OctoBot）、`模拟盘 PAPER`、`实盘 LIVE`、`待机 IDLE`（已连接但还没有订单）、`只读 WATCH`（只连了 Bitget 账户）。
 
+### 回测与持仓交接
+- **回测**：`python tools/fetch_history.py --days 730 BTCUSDT ETHUSDT SOLUSDT` 下载 Bitget 历史 K 线（国内网络可加 `--proxy http://127.0.0.1:7890`），然后运行 `python tools/run_backtest.py`（可加 `--fee 0.002` 做高手续费压力测试）。成交规则偏保守，包含手续费和滑点，并与持有 BTC 对比。最新结论见 `docs/BACKTEST_2026-10-26.md`：两年里只有网格接近持有 BTC 的收益且回撤小得多；**自动选策略方案回测亏损，界面上标为实验功能**。驾驶舱的策略卡片会显示每个策略的回测结果。
+- **持仓交接**：设置页“切换策略时的持币”，默认切到“观望”时先卖出全部持币，核实只剩 USDT 后再切换，真正做到空仓；也可以改为保留持币，或每次切换都清仓。
+
 ### 安全与通知
 - 驾驶舱和 OctoBot 只监听本机 127.0.0.1。驾驶舱会拒绝其他网页发来的跨站请求和改写主机名（DNS 重绑定）的请求。
 - **建议给 OctoBot 网页设置密码**（OctoBot → Accounts → Interfaces → Web），并在 `.env` 填同一个 `OCTOBOT_PASSWORD`，驾驶舱会自动登录。否则其他网页理论上可以通过 OctoBot 的 GET 接口让它停机或切换策略。

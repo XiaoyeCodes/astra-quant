@@ -36,7 +36,7 @@
     "profile": {
         "avatar": "default_profile.png",
         "complexity": 1,
-        "description": "ASTRA 预设：只看行情、不下任何新单（OctoBot Non-Trading）。用于单边下跌或剧烈波动时暂停开仓；切换前已有的持币不会被卖出。默认模拟盘。",
+        "description": "ASTRA 预设：只看行情、不下任何新单（OctoBot Non-Trading）。用于单边下跌或剧烈波动时暂停开仓。切换到观望时，驾驶舱默认按交接规则先卖出全部持币、核实只剩 USDT（可在设置中改为保留持币）。默认模拟盘。",
         "id": "astra_idle",
         "name": "ASTRA · 观望",
         "read_only": false,
