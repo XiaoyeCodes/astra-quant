@@ -1,0 +1,21 @@
+{
+    "index_content": [
+        {
+            "name": "BTC",
+            "value": 50
+        },
+        {
+            "name": "ETH",
+            "value": 30
+        },
+        {
+            "name": "SOL",
+            "value": 20
+        }
+    ],
+    "rebalance_trigger_min_percent": 5,
+    "refresh_interval": 1,
+    "required_strategies": [
+        "SimpleStrategyEvaluator"
+    ]
+}

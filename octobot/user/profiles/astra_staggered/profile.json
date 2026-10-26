@@ -1,0 +1,46 @@
+{
+    "config": {
+        "crypto-currencies": {
+            "Bitcoin": {
+                "enabled": true,
+                "pairs": [
+                    "BTC/USDT"
+                ]
+            }
+        },
+        "exchanges": {
+            "bitget": {
+                "enabled": true,
+                "exchange-type": "spot"
+            }
+        },
+        "trader": {
+            "enabled": false,
+            "load-trade-history": true
+        },
+        "trader-simulator": {
+            "enabled": true,
+            "fees": {
+                "maker": 0.1,
+                "taker": 0.1
+            },
+            "starting-portfolio": {
+                "BTC": 0.015,
+                "USDT": 1000
+            }
+        },
+        "trading": {
+            "reference-market": "USDT",
+            "risk": 0.5
+        }
+    },
+    "profile": {
+        "avatar": "default_profile.png",
+        "complexity": 2,
+        "description": "ASTRA 预设：Bitget 现货 BTC/USDT 阶梯挂单。在 60000–100000 USDT 区间内按 1.5% 比例间距挂单（最多 30 张），成交后挂反向单，适合长期宽幅震荡。资金分散，单格利润低。默认模拟盘。",
+        "id": "astra_staggered",
+        "name": "ASTRA · 阶梯挂单 BTC",
+        "read_only": false,
+        "risk": 1
+    }
+}

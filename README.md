@@ -23,13 +23,13 @@ Bitget ⇄ OctoBot（执行策略，下单）⇄ 桥接服务（读取数据）�
 
 ## 二、启动
 
-1. 双击 **`start.bat`**。第一次运行会下载 OctoBot 镜像并构建驾驶舱，需要几分钟。
+1. 双击 **`start.bat`**。第一次运行会下载 OctoBot 镜像、安装 OctoBot 插件并构建驾驶舱，需要几分钟。OctoBot 固定为 **2.1.1** 版本（3.0 改成了节点模式，驾驶舱读不到数据）。
 2. 浏览器会自动打开两个页面：
    - 驾驶舱：http://localhost:8080
    - OctoBot 控制台：http://localhost:5001
 3. 在 OctoBot 还没配置好之前，驾驶舱显示 **演示数据**（顶部有黄色提示条），可以先熟悉界面。
 
-停止：双击 `stop.bat`。查看日志：双击 `logs.bat`。更新 OctoBot：双击 `update.bat`。
+停止：双击 `stop.bat`。查看日志：双击 `logs.bat`。`update.bat` 会重新拉取 `docker-compose.yml` 中固定的 OctoBot 版本。
 
 > 只想先看界面？直接用浏览器打开 `web/index.html`，会进入演示模式（不需要 Docker）。
 
@@ -46,18 +46,44 @@ Bitget 网站 → 头像 → **API 管理** → 创建 API：
 **Accounts（账户）→ Exchanges（交易所）→ 添加 bitget** → 填入 API Key、Secret、Password（即 Passphrase）→ 保存。
 
 ### 3. 选择 ASTRA 预设策略
-OctoBot 顶部 **Profile（配置）** → 选择以下任意一个 → 确认后 OctoBot 会重启：
+推荐在驾驶舱里选：右上角 **⚙ 设置 → 策略 · 手动切换**，点开一个策略再点“切换”，OctoBot 会自动重启（1–3 分钟）。也可以在 OctoBot 顶部 **Profile（配置）** 里选。
 
-| 策略 | 市场 | 做什么 |
+所有预设都是 **Bitget 现货、默认模拟盘**（OctoBot 的虚拟资金，在 Bitget 真实行情上模拟成交，不会动你的钱）：
+
+| 策略 | 做什么 | 适合 |
 |---|---|---|
-| **ASTRA · 现货网格 BTC** | Bitget 现货 BTC/USDT | 当前价上下各 8 档，间隔 400 USDT（约 0.6%）。成交后在相邻价位挂反向单赚差价。 |
-| **ASTRA · 合约分批补仓 BTC** | Bitget USDT 永续 BTC/USDT:USDT | 每 4 小时开一轮：首单 4% 资金，每跌 1.5% 补一单（6% 资金，共 3 单），均价上方 1.2% 止盈，下方 6% 止损。 |
-
-两个预设**默认是模拟盘**：用 OctoBot 的虚拟资金，在 Bitget 真实行情上模拟成交，不会动你的钱。
+| **现货网格** | BTC/USDT 当前价上下各 8 档，间隔 400 USDT（约 0.5%），成交后在相邻价位挂反向单 | 震荡 |
+| **移动网格** | 同上，价格突破上沿后网格整体上移 | 震荡、慢涨 |
+| **阶梯挂单** | 60000–100000 区间按 1.5% 比例间距挂单 | 长期宽幅震荡 |
+| **分批补仓** | 每 4 小时开一轮：首单 4% 资金，每跌 1.5% 补一单（6%，共 3 单），均价上方 1.2% 止盈，下方 6% 止损 | 震荡偏弱 |
+| **智能补仓** | 4 小时 EMA 超跌才买，每次 5%、最多 3 档，小反弹分批止盈 | 上涨中的回调 |
+| **趋势指标** | 1h/4h/1d 双均线 + RSI 顺势买卖，带止损 | 明确趋势 |
+| **抄底分析** | 识别急跌低点加权买入，涨 4–10% 分 3 批卖（无止损） | 剧烈波动 |
+| **反转信号** | 布林带 + Klinger 找反转点高抛低吸，带止损 | 平稳震荡 |
+| **指数持仓** | BTC 50% / ETH 30% / SOL 20%，偏离 5% 再平衡 | 长期持有 |
+| **AI 信号** | DeepSeek 每小时读 K 线给看涨/看跌信号，看涨时分批买入、2% 止盈 | 需要 LLM Key |
+| **AI 仓位** | OctoBot AI Trading：多个 AI 智能体综合指标、新闻、情绪决定 BTC/ETH/SOL/USDT 比例 | 暂停使用：新闻/市值数据源返回 401，完整调仓未通过测试 |
+| **观望** | 不下新单，只看行情 | 下跌、剧烈波动时暂停 |
+| ~~合约分批补仓~~ | **OctoBot 的 Bitget 插件不支持合约**（模拟盘、实盘都不行），列表里显示为不可用；补仓逻辑可用“分批补仓”验证 | — |
 
 - 调整参数：OctoBot → 当前 Profile → **Trading mode 设置**（网格间距、档数、补仓比例等）。
 - 想要 ETH 等其他币：在 Profile 的币种设置里添加交易对，并在网格设置里加上对应参数。
-- 合约杠杆：先在 Bitget 合约页面把 BTCUSDT 杠杆设为 **1–3 倍**。
+
+### 交易方案、自动选策略和止损
+驾驶舱 **⚙ 设置 → 交易方案** 有四种方案，每种都能单独设置 **最大止损 %**：
+
+| 方案 | 说明 |
+|---|---|
+| **手动** | 自己在策略列表里挑，不自动切换 |
+| **AI 交易** | 运行“AI 信号”或“AI 仓位”策略 |
+| **AI 选策略** | 每 30 分钟让 DeepSeek 分析 BTC 行情（震荡 / 上涨 / 下跌 / 剧烈波动）并挑选策略；连续 2 次判断一致、置信度 ≥ 50% 才切换 |
+| **指标选策略** | 每 10 分钟用 ADX、ATR、均线斜率、布林带宽度判断行情并映射到策略；连续 3 次一致才切换。不需要 Key |
+
+- 自动切换只在 **模拟盘** 下工作，每个策略至少运行 12 小时才会被换掉（`.env` 中可调）。
+- **止损**：从“启动方案时的资金”算起，亏损达到设定比例（连续约 9 秒确认）时，OctoBot 会 **撤销所有挂单 → 全部卖成 USDT → 停止策略并暂停交易**，并把配置改为“观望”，之后重启也不会恢复交易。重新启动方案或手动选择策略后恢复。OctoBot 内部同时设置了一条同样动作的自动化作为备用（驾驶舱或桥接服务停止时也生效，从 OctoBot 本次启动算起）。
+- **AI 功能**：在 `.env` 填 `LLM_API_KEY`（DeepSeek 的 Key，https://platform.deepseek.com ），`LLM_MODEL` 默认使用 `deepseek-flash`，然后重新运行 `start.bat`。同一个 Key 同时给 OctoBot 的 AI 策略和驾驶舱的 AI 行情判断使用；AI 信号预设继承这个模型设置。Key 只保存在你本机的 `.env`。`LLM_DAILY_TOKEN_LIMIT` 可以限制 OctoBot 每天的用量。
+
+2026-10-25 的真实行情模拟盘观察已完成 30 分钟，结果见 [测试报告](docs/SOAK_REPORT_2026-10-25.md)。这不是每个策略各跑 30 分钟，也不能证明胜率或持续盈利。启动时会自动应用固定版本 OctoBot 的 DeepSeek JSON 输出适配、跨策略模拟持币清算修复，并同步已安装插件的版本信息，避免把导入预设误判成插件过期。不要单独复制 `octobot/` 目录运行，应从项目根目录启动。
 
 ### 4. 从模拟盘切换到实盘
 OctoBot → **Profile** 页面 → 交易设置中关闭 *Trader simulator*（模拟交易），打开 *Trader*（实盘交易）→ 保存并重启。不同版本的菜单位置可能略有不同，认准这两个开关即可。
@@ -80,6 +106,8 @@ OctoBot → **Profile** 页面 → 交易设置中关闭 *Trader simulator*（�
 | **账簿 / 控制台** | 挂单、持仓、成交明细，以及系统事件日志。 |
 | **紧急停止** | 右上角红色按钮（`.env` 中 `ENABLE_CONTROLS=true` 时显示）。输入“确认”后，让 OctoBot 撤销全部挂单并停止运行。**已有持仓不会自动平仓**，需要你去 Bitget 处理。 |
 
+OctoBot 短暂断开（重启、切换策略）时，驾驶舱保留断开前的最后数据并提示“OctoBot 重连中”，超过 15 分钟才回到演示数据。
+
 顶部状态：`演示 DEMO`（未连接 OctoBot）、`模拟盘 PAPER`、`实盘 LIVE`、`待机 IDLE`（已连接但还没有订单）、`只读 WATCH`（只连了 Bitget 账户）。
 
 ### 可选：给驾驶舱配置 Bitget 只读密钥
@@ -91,6 +119,9 @@ OctoBot → **Profile** 页面 → 交易设置中关闭 *Trader simulator*（�
 - **驾驶舱 3D 区域显示“等待行情数据”**：桥接服务连不上 Bitget。在 `.env` 设置 `BITGET_PROXY` 后重新运行 `start.bat`。
 - **一直显示“演示数据”**：OctoBot 还没启动完成（第一次启动要安装插件，需要 1–3 分钟），或者在 OctoBot 中设置了登录密码。驾驶舱读取需要 OctoBot 网页**不设密码**。端口只绑定本机，外部访问不到。
 - **OctoBot 页面打不开**：运行 `logs.bat` 查看 `astra-octobot` 的日志。
+- **OctoBot 一直重启，日志里有 `KeyError: 'default'`**：插件没装上。运行 `docker compose run --rm --no-deps octobot tentacles --install --all` 后再 `start.bat`（新版 `start.bat` 首次运行会自动执行）。
+- **电脑休眠或重启后 OctoBot 页面打不开（容器显示 unhealthy）**：Docker 启动时网络还没就绪，OctoBot 连不上交易所后卡住。运行 `docker compose restart octobot` 即可。
+- **切换策略提示“新加入的策略需要先重启一次 OctoBot”**：OctoBot 只在启动时读取策略列表，运行 `docker compose restart octobot` 后再切换。
 - **端口被占用**：修改 `docker-compose.yml` 中的 `127.0.0.1:8080` 或 `127.0.0.1:5001` 左边的端口号。
 
 ## 六、项目结构
@@ -101,16 +132,16 @@ astra-quant/
 ├─ docker-compose.yml                             OctoBot + 桥接服务
 ├─ .env.example                                   配置模板
 ├─ bridge/                                        桥接服务（Python · Starlette · ccxt）
-│  └─ app/  main.py  state.py  octobot_client.py  bitget_client.py  config.py
+│  └─ app/  main.py  state.py  autopilot.py(方案/自动切换/止损)  regime.py(指标行情)  llm.py(AI 行情)
+│           strategies.py  octobot_client.py  bitget_client.py  config.py
 ├─ web/                                           驾驶舱前端（three.js r128，无需构建）
 │  ├─ index.html  css/astra.css
-│  └─ js/  halo.js(时间光环)  tower.js(全息 K 线台)  indicators.js  lattice.js  pulse.js  graph.js(全息沙盘)  panels.js  demo.js  feed.js
+│  └─ js/  halo.js(时间光环)  tower.js(全息 K 线台)  indicators.js  lattice.js  pulse.js  graph.js(全息沙盘)  panels.js  strategy.js(设置页方案/策略)  demo.js  feed.js
 └─ octobot/user/profiles/                         ASTRA 预设策略
-   ├─ astra_spot_grid/
-   └─ astra_futures_dca/
+   └─ astra_*/（13 个预设：网格、补仓、指标、AI、观望等）
 ```
 
-桥接服务接口：`GET /api/state`（完整状态 JSON）、`WS /ws`（每秒推送）、`POST /api/focus`、`POST /api/control/cancel-all`、`POST /api/control/stop-bot`。
+桥接服务接口：`GET /api/state`（完整状态 JSON）、`WS /ws`（每秒推送）、`POST /api/focus`、`POST /api/control/cancel-all`、`POST /api/control/stop-bot`、`POST /api/strategy/select|scheme|stoploss|ai-refresh`（策略与方案，仅模拟盘）。
 
 ## 七、许可说明
 

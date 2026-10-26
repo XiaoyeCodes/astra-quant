@@ -6,6 +6,6 @@ octobot/backtesting/
 octobot/user/*
 !octobot/user/profiles/
 octobot/user/profiles/*
-!octobot/user/profiles/astra_spot_grid/
-!octobot/user/profiles/astra_futures_dca/
+!octobot/user/profiles/astra_*/
 __pycache__/
+octobot/user/profiles/astra_*/specific_config/Automation.json

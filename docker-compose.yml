@@ -2,13 +2,23 @@
 # 两个端口都只绑定在本机 127.0.0.1，局域网和外网访问不到。
 services:
   octobot:
-    image: drakkarsoftware/octobot:stable
+    # 固定 2.x：stable 标签已指向 3.0（节点模式，没有 5001 端口上的 /api/* 接口，桥接服务读不到数据）
+    image: drakkarsoftware/octobot:2.1.1
     container_name: astra-octobot
+    entrypoint: ["/bin/sh", "/astra-tools/octobot_entrypoint.sh"]
     volumes:
+      - ./tools:/astra-tools:ro
       - ./octobot/user:/octobot/user
       - ./octobot/tentacles:/octobot/tentacles
       - ./octobot/logs:/octobot/logs
       - ./octobot/backtesting:/octobot/backtesting
+    environment:
+      PYTHONPATH: /astra-tools
+      # AI 策略用的大模型（.env 中的 LLM_*），OctoBot 原生读取这些环境变量
+      OPENAI_SECRET_KEY: ${LLM_API_KEY:-}
+      LLM_CUSTOM_BASE_URL: ${LLM_BASE_URL:-https://api.deepseek.com}
+      LLM_MODEL: ${LLM_MODEL:-deepseek-flash}
+      GPT_DAILY_TOKEN_LIMIT: ${LLM_DAILY_TOKEN_LIMIT:-}
     ports:
       - "127.0.0.1:5001:5001"
     # 驾驶舱的“紧急停止”会让 OctoBot 正常退出；on-failure 保证它不会被自动拉起

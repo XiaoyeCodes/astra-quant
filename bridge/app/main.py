@@ -43,10 +43,7 @@ async def focus_endpoint(request: Request) -> JSONResponse:
 async def _control(request: Request, action) -> JSONResponse:
     if not settings.enable_controls:
         return JSONResponse({"ok": False, "error": "紧急控制未开启（.env 中 ENABLE_CONTROLS=false）"}, status_code=403)
-    try:
-        body = await request.json()
-    except json.JSONDecodeError:
-        body = {}
+    body = await _json_body(request)
     if body.get("confirm") != CONFIRM_WORD:
         return JSONResponse({"ok": False, "error": f"请输入“{CONFIRM_WORD}”以执行该操作"}, status_code=400)
     try:
@@ -62,6 +59,56 @@ async def cancel_all(request: Request) -> JSONResponse:
 
 async def stop_bot(request: Request) -> JSONResponse:
     return await _control(request, cockpit.stop_bot)
+
+
+async def _json_body(request: Request) -> dict:
+    try:
+        body = await request.json()
+    except json.JSONDecodeError:
+        return {}
+    return body if isinstance(body, dict) else {}
+
+
+async def _desk_call(coro) -> JSONResponse:
+    try:
+        result = await coro
+    except ValueError as err:
+        return JSONResponse({"ok": False, "error": str(err)}, status_code=400)
+    except OctoBotError as err:
+        return JSONResponse({"ok": False, "error": f"OctoBot 没有接受操作（{err}）。新加入的策略需要先重启一次 OctoBot"},
+                            status_code=502)
+    return JSONResponse({"ok": True, "result": result, "strategy": cockpit.desk.snapshot()})
+
+
+async def strategy_select(request: Request) -> JSONResponse:
+    body = await _json_body(request)
+    return await _desk_call(cockpit.desk.manual_select(str(body.get("profile", ""))))
+
+
+async def strategy_scheme(request: Request) -> JSONResponse:
+    body = await _json_body(request)
+    stop = body.get("stopLoss")
+    return await _desk_call(cockpit.desk.start_scheme(
+        str(body.get("scheme", "")),
+        ai_profile=body.get("aiProfile"),
+        stop_pct=stop if stop not in (None, "") else None,
+    ))
+
+
+async def strategy_stoploss(request: Request) -> JSONResponse:
+    body = await _json_body(request)
+
+    async def apply() -> str:
+        cockpit.desk.set_stop_loss(str(body.get("scheme", "")), body.get("pct"))
+        return "已保存"
+    return await _desk_call(apply())
+
+
+async def strategy_ai_refresh(request: Request) -> JSONResponse:
+    async def apply() -> str:
+        cockpit.desk.refresh_ai()
+        return "AI 正在分析行情"
+    return await _desk_call(apply())
 
 
 async def ws_endpoint(ws: WebSocket) -> None:
@@ -98,6 +145,10 @@ routes = [
     Route("/api/focus", focus_endpoint, methods=["POST"]),
     Route("/api/control/cancel-all", cancel_all, methods=["POST"]),
     Route("/api/control/stop-bot", stop_bot, methods=["POST"]),
+    Route("/api/strategy/select", strategy_select, methods=["POST"]),
+    Route("/api/strategy/scheme", strategy_scheme, methods=["POST"]),
+    Route("/api/strategy/stoploss", strategy_stoploss, methods=["POST"]),
+    Route("/api/strategy/ai-refresh", strategy_ai_refresh, methods=["POST"]),
     WebSocketRoute("/ws", ws_endpoint),
     Mount("/", app=StaticFiles(directory=os.path.abspath(settings.web_dir), html=True), name="web"),
 ]

@@ -1,0 +1,46 @@
+{
+    "config": {
+        "crypto-currencies": {
+            "Bitcoin": {
+                "enabled": true,
+                "pairs": [
+                    "BTC/USDT"
+                ]
+            }
+        },
+        "exchanges": {
+            "bitget": {
+                "enabled": true,
+                "exchange-type": "spot"
+            }
+        },
+        "trader": {
+            "enabled": false,
+            "load-trade-history": true
+        },
+        "trader-simulator": {
+            "enabled": true,
+            "fees": {
+                "maker": 0.1,
+                "taker": 0.1
+            },
+            "starting-portfolio": {
+                "BTC": 0.015,
+                "USDT": 1000
+            }
+        },
+        "trading": {
+            "reference-market": "USDT",
+            "risk": 0.5
+        }
+    },
+    "profile": {
+        "avatar": "default_profile.png",
+        "complexity": 1,
+        "description": "ASTRA 预设：Bitget 现货 BTC/USDT 移动网格。参数同现货网格（上下各 8 档，间隔 400 USDT），价格突破上沿后网格整体上移，适合震荡上行。急跌时与普通网格一样会被套。默认模拟盘。",
+        "id": "astra_trailing_grid",
+        "name": "ASTRA · 移动网格 BTC",
+        "read_only": false,
+        "risk": 1
+    }
+}

@@ -1,0 +1,62 @@
+{
+    "config": {
+        "crypto-currencies": {
+            "Bitcoin": {
+                "enabled": true,
+                "pairs": [
+                    "BTC/USDT"
+                ]
+            },
+            "Ethereum": {
+                "enabled": true,
+                "pairs": [
+                    "ETH/USDT"
+                ]
+            },
+            "Solana": {
+                "enabled": true,
+                "pairs": [
+                    "SOL/USDT"
+                ]
+            }
+        },
+        "exchanges": {
+            "bitget": {
+                "enabled": true,
+                "exchange-type": "spot"
+            }
+        },
+        "trader": {
+            "enabled": false,
+            "load-trade-history": true
+        },
+        "trader-simulator": {
+            "enabled": true,
+            "fees": {
+                "maker": 0.1,
+                "taker": 0.1
+            },
+            "starting-portfolio": {
+                "USDT": 1000
+            }
+        },
+        "trading": {
+            "reference-market": "USDT",
+            "risk": 0.5
+        },
+        "services": {
+            "gpt_service": {
+                "enabled": true
+            }
+        }
+    },
+    "profile": {
+        "avatar": "default_profile.png",
+        "complexity": 3,
+        "description": "ASTRA 预设：OctoBot AI Trading。多个 AI 智能体综合技术指标、新闻、恐惧贪婪指数和市值，决定 BTC/ETH/SOL/USDT 的仓位比例并调仓。调用量较大。需要在 .env 填 LLM_API_KEY。默认模拟盘。",
+        "id": "astra_ai_index",
+        "name": "ASTRA · AI 仓位 BTC/ETH/SOL",
+        "read_only": false,
+        "risk": 2
+    }
+}

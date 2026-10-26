@@ -83,10 +83,11 @@
         <span class="pill"><b id="rkLiq">—</b> 距强平</span>
         <span class="pill"><b id="rkExpo">—</b> 持仓价值</span>
       </div>
-      <div class="gridbar" aria-label="现价在网格区间中的位置">
+      <div class="gridbar" id="stratBar" aria-label="现价在策略挂单区间中的位置">
         <div class="gb-track"><i class="gb-buy" id="gbBuy"></i><i class="gb-sell" id="gbSell"></i><b class="gb-mark" id="gbMark"></b></div>
-        <div class="gb-scale num"><span id="gbLo">—</span><span id="gbPct">网格区间</span><span id="gbHi">—</span></div>
+        <div class="gb-scale num"><span id="gbLo">—</span><span id="gbPct">挂单区间</span><span id="gbHi">—</span></div>
       </div>
+      <div class="rk-scheme num" id="rkScheme">—</div>
       <div class="rk-foot"><span id="stratMeta">—</span><a class="link" id="octoLink" href="http://localhost:5001" target="_blank" rel="noopener">OctoBot ↗</a></div>
     </div>
     <div class="hud hud-br" id="flowCard">
@@ -203,9 +204,46 @@
 <div class="drawer-bg" id="settingsBg" hidden></div>
 <aside class="drawer" id="settings" role="dialog" aria-modal="true" aria-labelledby="settingsTitle" hidden>
   <div class="drawer-head">
-    <div><div class="label">个人设置 · SETTINGS</div><h3 id="settingsTitle">显示与视图</h3></div>
+    <div><div class="label">设置 · SETTINGS</div><h3 id="settingsTitle">交易方案与显示</h3></div>
     <button type="button" class="drawer-x" id="settingsClose" aria-label="关闭设置">✕</button>
   </div>
+  <section class="drawer-sec" id="secScheme">
+    <h4>交易方案</h4>
+    <div class="schemes" id="schemeList" role="group" aria-label="交易方案">
+      <button type="button" data-v="manual"><b>手动</b><span>自己挑选策略</span></button>
+      <button type="button" data-v="ai_trade"><b>AI 交易</b><span>AI 给出买卖信号或仓位</span></button>
+      <button type="button" data-v="ai_regime"><b>AI 选策略</b><span>大模型判断行情后自动切换</span></button>
+      <button type="button" data-v="rule_regime"><b>指标选策略</b><span>ADX / ATR / 均线 / 布林带</span></button>
+    </div>
+    <div class="seg" id="aiTradePick" role="group" aria-label="AI 交易方式" hidden>
+      <button type="button" data-v="astra_ai_signal">AI 信号（买卖点）</button>
+      <button type="button" data-v="astra_ai_index">AI 仓位（多币配比）</button>
+    </div>
+    <p class="hint" id="schemeDesc"></p>
+    <div class="sl-row">
+      <label for="slInput">最大止损</label>
+      <input id="slInput" type="number" min="0" max="90" step="0.5" inputmode="decimal">
+      <span>%</span>
+      <span class="hint-inline">从方案启动时的资金算起 · 0 = 不止损</span>
+    </div>
+    <div class="act-row">
+      <button type="button" class="act primary" id="schemeGo">启动方案</button>
+      <button type="button" class="act" id="slSave">只保存止损比例</button>
+    </div>
+    <p class="hint msg" id="schemeMsg" role="status"></p>
+    <div class="scheme-status" id="schemeStatus"></div>
+  </section>
+  <section class="drawer-sec" id="secRadar">
+    <h4>行情雷达 · <span id="radarSym">BTC/USDT</span></h4>
+    <div class="radar" id="radarRule"></div>
+    <div class="radar" id="radarAi"></div>
+    <button type="button" class="act" id="aiRefresh">让 AI 重新分析</button>
+  </section>
+  <section class="drawer-sec" id="secStrats">
+    <h4>策略 · 手动切换</h4>
+    <div class="st-list" id="stList"></div>
+    <p class="hint msg" id="stMsg" role="status"></p>
+  </section>
   <section class="drawer-sec">
     <h4>主视觉风格</h4>
     <div class="seg" id="segStyle" role="group" aria-label="主视觉风格">
@@ -230,10 +268,10 @@
       <button type="button" class="tg" data-k="ma99"><i style="background:#6fd6c4"></i>MA99</button>
       <button type="button" class="tg" data-k="boll"><i class="band"></i>布林带</button>
       <button type="button" class="tg" data-k="sr"><i class="dash"></i>压力 / 支撑</button>
-      <button type="button" class="tg" data-k="orders"><i class="planes"></i>网格挂单</button>
+      <button type="button" class="tg" data-k="orders"><i class="planes"></i>策略挂单</button>
     </div>
   </section>
-  <p class="drawer-note">设置保存在本机浏览器，下次打开自动恢复。</p>
+  <p class="drawer-note">交易方案、止损和策略保存在桥接服务中；显示设置保存在本机浏览器。</p>
 </aside>
 
 <div class="modal" id="killModal" hidden>
@@ -260,6 +298,7 @@
 <script src="js/lattice.js"></script>
 <script src="js/pulse.js"></script>
 <script src="js/graph.js"></script>
+<script src="js/strategy.js"></script>
 <script src="js/panels.js"></script>
 <script src="js/app.js"></script>
 </body>

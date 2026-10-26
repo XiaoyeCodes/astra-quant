@@ -37,6 +37,21 @@ class Settings:
         # Emergency controls (cancel all orders + stop OctoBot). Off by default.
         self.enable_controls = _bool("ENABLE_CONTROLS", False)
 
+        # Strategy radar and auto switching (paper trading only)
+        self.regime_symbol = os.getenv("REGIME_SYMBOL", "BTC/USDT").strip() or "BTC/USDT"
+        self.regime_period = float(os.getenv("REGIME_PERIOD", "") or 600)
+        # same verdict this many times in a row before an automatic switch
+        self.auto_confirm = max(1, int(os.getenv("AUTO_SWITCH_CONFIRM", "") or 3))
+        # minimum time a strategy runs before an automatic switch away from it
+        self.auto_min_hold_hours = float(os.getenv("AUTO_SWITCH_MIN_HOLD_HOURS", "") or 12)
+
+        # Large language model for the AI market read (DeepSeek or any OpenAI compatible API)
+        self.llm_api_key = os.getenv("LLM_API_KEY", "").strip()
+        self.llm_base_url = (os.getenv("LLM_BASE_URL", "").strip() or "https://api.deepseek.com").rstrip("/")
+        self.llm_model = os.getenv("LLM_MODEL", "").strip() or "deepseek-flash"
+        self.llm_proxy = os.getenv("LLM_PROXY", "").strip()
+        self.ai_regime_period = float(os.getenv("AI_REGIME_PERIOD", "") or 1800)
+
         # Polling periods (seconds)
         self.ticker_period = float(os.getenv("TICKER_PERIOD", "1.0"))
         self.octobot_period = float(os.getenv("OCTOBOT_PERIOD", "3.0"))

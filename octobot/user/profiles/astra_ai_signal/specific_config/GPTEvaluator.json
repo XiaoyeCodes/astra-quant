@@ -1,0 +1,9 @@
+{
+    "GPT_model": "use interface configured model",
+    "indicator": "No indicator: raw candles price data",
+    "min_confidence_threshold": 60,
+    "period": 20,
+    "source": "Full candle (For no indicator only)",
+    "allow_reevaluation": false,
+    "max_gpt_tokens": -1
+}
