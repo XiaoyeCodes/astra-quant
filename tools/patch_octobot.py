@@ -37,12 +37,43 @@ def sync_installation_context(root):
             target.write_text(json.dumps(profile, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
 
 
+FEE_MARKER = "# ASTRA paper fees v1"
+FEE_ANCHOR = "    def get_adapter_class(self):\n        return BitgetCCXTAdapter\n"
+FEE_METHOD = (
+    "    " + FEE_MARKER + ": ccxt's static Bitget fees (0.2%) replace the profile's paper fees\n"
+    "    def get_trade_fee(self, symbol, order_type, quantity, price, taker_or_maker):\n"
+    "        from octobot_paper_fees import configured_paper_fee\n"
+    "        fee = configured_paper_fee(self.exchange_manager, symbol, quantity, price, taker_or_maker)\n"
+    "        if fee is not None:\n"
+    "            return fee\n"
+    "        return super().get_trade_fee(symbol, order_type, quantity, price, taker_or_maker)\n\n"
+)
+
+
+def patch_paper_fees(root):
+    """Make Bitget paper trades pay the profile's simulator fees (optional: skipped if layout changed)."""
+    target = Path(root) / 'tentacles/Trading/Exchange/bitget/bitget_exchange.py'
+    if not target.exists():
+        return
+    source = target.read_text(encoding='utf-8')
+    if FEE_MARKER in source:
+        return
+    if source.count(FEE_ANCHOR) != 1:
+        print('ASTRA: Bitget tentacle layout changed; paper fee patch skipped')
+        return
+    updated = source.replace(FEE_ANCHOR, FEE_METHOD + FEE_ANCHOR)
+    compile(updated, str(target), 'exec')
+    target.write_text(updated, encoding='utf-8')
+    print('ASTRA: applied paper fee patch (profile simulator fees for Bitget paper trading)')
+
+
 def patch(root):
     target = Path(root) / 'tentacles/Services/Services_bases/gpt_service/gpt.py'
     if not target.exists():
         print('ASTRA: tentacles not installed yet; provider patch deferred')
         return
     sync_installation_context(root)
+    patch_paper_fees(root)
     action = Path(root) / 'tentacles/Automation/actions/sell_all_currencies_action/sell_all_currencies.py'
     if action.exists():
         action_source = action.read_text(encoding='utf-8')

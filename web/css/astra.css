@@ -452,3 +452,7 @@ td .src{font-size:10px;color:var(--ink-3);letter-spacing:.1em}
 .warn-box{display:block;margin-top:8px;padding:8px 10px;border:1px solid rgba(241,181,92,.55);border-radius:var(--r);background:rgba(241,181,92,.08);color:#f6d9a8;font-size:11px;line-height:1.65}
 .st-bt{margin:4px 0 0;font-family:var(--f-mono);font-size:10px;line-height:1.6;color:var(--ink-3)}
 .st-bt b{font-weight:500}
+.risk-grid{display:grid;grid-template-columns:auto 76px auto minmax(0,1fr);align-items:center;gap:8px 8px;margin-top:12px;font-size:12px;color:var(--ink-2)}
+.risk-grid input{width:76px;padding:6px 8px;background:var(--bg);border:1px solid var(--line-2);border-radius:var(--r);color:var(--ink);font-family:var(--f-mono)}
+.risk-grid .hint-inline{font-size:10.5px;color:var(--ink-3)}
+@media (max-width:420px){.risk-grid{grid-template-columns:auto 70px auto}.risk-grid .hint-inline{grid-column:1/-1;margin-top:-4px}}

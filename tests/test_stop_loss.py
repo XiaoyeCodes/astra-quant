@@ -9,7 +9,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bridge"))
 
 from app import autopilot, octobot_client as octo
-from app.autopilot import StrategyDesk, CLEAR_ACTIONS, PAUSE_ACTIONS
+from app.autopilot import StrategyDesk, CLEAR_ACTIONS
 from app.config import settings
 
 PAGE = """<table class="table" id="holdings-table"><tbody>
@@ -65,6 +65,12 @@ class FakeOctoBot:
     async def select_profile(self, pid):
         self.calls.append(("select", pid))
 
+    async def restart_bot(self):
+        self.calls.append(("restart",))
+
+    def paper_snapshot_time(self):
+        return __import__("time").time() + 1  # OctoBot saved the paper account after the sale
+
 
 class StopLossTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
@@ -88,7 +94,8 @@ class StopLossTests(unittest.IsolatedAsyncioTestCase):
         self.tmp.cleanup()
 
     def use(self, fake):
-        names = ("save_automations", "start_automations", "orders", "holdings", "select_profile")
+        names = ("save_automations", "start_automations", "orders", "holdings", "select_profile", "restart_bot",
+                 "paper_snapshot_time")
         for n in names:
             p = patch.object(octo, n, getattr(fake, n))
             p.start()
@@ -107,8 +114,9 @@ class StopLossTests(unittest.IsolatedAsyncioTestCase):
         self.c.oct_equity = self.c.oct_equity_live = 1890.0
         await self.desk.execute_stop()
         saves = [c[1] for c in fake.calls if c[0] == "save"]
-        self.assertEqual(saves, [[CLEAR_ACTIONS], [], [PAUSE_ACTIONS], []])  # clear, remove, pause, remove
-        self.assertEqual(fake.calls[-1], ("select", "astra_idle"))
+        self.assertEqual(saves, [[CLEAR_ACTIONS], []])                # clear, then remove; no pause
+        self.assertEqual(fake.calls[-2:], [("select", "astra_idle"), ("restart",)])
+        self.assertEqual(self.desk.switching["to"], "astra_idle")       # banner and alerts know it is planned
         stopped = self.desk.cfg["stopped"]
         self.assertTrue(stopped["verified"])
         self.assertIsNone(stopped["problem"])
@@ -125,9 +133,8 @@ class StopLossTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(stopped["verified"])
         self.assertIn("BTC", stopped["problem"])
         self.assertIn("未完全执行", self.c.logs[-1][1])
-        # trading is still paused and parked on idle
-        self.assertIn(("save", [PAUSE_ACTIONS]), fake.calls)
-        self.assertEqual(fake.calls[-1], ("select", "astra_idle"))
+        # still parked on 观望 (no new orders) even though the sale was incomplete
+        self.assertEqual(fake.calls[-2:], [("select", "astra_idle"), ("restart",)])
 
     async def test_unreadable_holdings_are_not_called_verified(self):
         fake = FakeOctoBot(holdings_known=False)

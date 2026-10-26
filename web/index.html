@@ -220,12 +220,18 @@
       <button type="button" data-v="astra_ai_index">AI 仓位（多币配比）</button>
     </div>
     <p class="hint" id="schemeDesc"></p>
-    <div class="sl-row">
+    <div class="risk-grid">
       <label for="slInput">最大止损</label>
-      <input id="slInput" type="number" min="0" max="90" step="0.5" inputmode="decimal">
-      <span>%</span>
-      <span class="hint-inline">从方案启动时的资金算起 · 0 = 不止损</span>
+      <input id="slInput" type="number" min="0" max="90" step="0.5" inputmode="decimal"><span>%</span>
+      <span class="hint-inline">从方案启动时的资金算起</span>
+      <label for="trailInput">回撤止损</label>
+      <input id="trailInput" type="number" min="0" max="90" step="0.5" inputmode="decimal"><span>%</span>
+      <span class="hint-inline">从运行期间的最高资金算起，保护已赚到的利润</span>
+      <label for="dailyInput">单日亏损上限</label>
+      <input id="dailyInput" type="number" min="0" max="50" step="0.5" inputmode="decimal"><span>%</span>
+      <span class="hint-inline">从当天（北京时间）第一笔资金算起</span>
     </div>
+    <p class="hint">任意一条触发：撤单 → 卖出全部持币 → 核实只剩 USDT → 切换到观望（不再下单）。0 = 关闭这一条。</p>
     <div class="sl-row">
       <label for="handoverSel">切换策略时的持币</label>
       <select id="handoverSel"></select>
@@ -233,7 +239,7 @@
     </div>
     <div class="act-row">
       <button type="button" class="act primary" id="schemeGo">启动方案</button>
-      <button type="button" class="act" id="slSave">只保存止损比例</button>
+      <button type="button" class="act" id="slSave">只保存风控参数</button>
     </div>
     <p class="hint msg" id="schemeMsg" role="status"></p>
     <div class="scheme-status" id="schemeStatus"></div>
