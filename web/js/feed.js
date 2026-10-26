@@ -124,6 +124,15 @@
     return data;
   };
 
+  feed.notifyTest = async function () {
+    if (feed.usingDemo) throw new Error('演示模式下不能发送通知');
+    const res = await fetch('/api/notify/test', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    let data = {};
+    try { data = await res.json(); } catch (e) { /* ignore */ }
+    if (!res.ok || !data.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    return data.result;
+  };
+
   feed.start = async function () {
     const servedByBridge = /^https?:$/.test(location.protocol) && !/claude|anthropic|usercontent/.test(location.hostname);
     if (!servedByBridge) { useDemo(true); return; }

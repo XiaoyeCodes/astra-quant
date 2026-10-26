@@ -40,9 +40,16 @@ SCHEMES = {
 AI_TRADE_PROFILES = ("astra_ai_signal", "astra_ai_index")
 AI_CONFIRM = 2  # consecutive identical AI verdicts before an automatic switch
 STOP_ACTIONS = ["CancelOpenOrders", "SellAllCurrencies", "StopStrategiesAndPauseTrader"]
+CLEAR_ACTIONS = ["CancelOpenOrders", "SellAllCurrencies"]  # repeated each second until verified
+PAUSE_ACTIONS = ["StopStrategiesAndPauseTrader"]
+DUST_VALUE = 1.0  # holdings worth less than this (in the reference market) count as sold
+CLEAR_TIMEOUT = 60  # seconds to wait for orders cancelled and holdings sold
 IDLE_PROFILE = "astra_idle"
 STOP_CONFIRM_POLLS = 3  # consecutive polls below the stop line before stopping (about 9 s)
 PAUSED_CONFIRM_POLLS = 5  # polls without any portfolio value: OctoBot paused itself (backup stop)
+# Nothing trades while OctoBot is offline. A larger equity jump across a gap means OctoBot reset
+# the paper account to the profile's starting funds (seen after container re-creation), not a loss.
+RESET_JUMP = 0.05
 
 
 def now_ms() -> int:
@@ -53,7 +60,8 @@ def backup_pct(stop_pct: float) -> float:
     return round(abs(stop_pct) + max(1.0, abs(stop_pct) * 0.5), 2)
 
 
-def automation_config(stop_pct: float | None = None, immediate: bool = False) -> dict:
+def automation_config(stop_pct: float | None = None, immediate: bool = False,
+                      actions: list[str] | None = None) -> dict:
     """OctoBot Automation tentacle config: optional safety net and/or an immediate stop."""
     items = []
     if stop_pct:
@@ -68,7 +76,7 @@ def automation_config(stop_pct: float | None = None, immediate: bool = False) ->
     if immediate:
         items.append({
             "trigger_event": "PeriodicCheck", "PeriodicCheck": {"update_period": 1},
-            "conditions": ["NoCondition"], "actions": STOP_ACTIONS,
+            "conditions": ["NoCondition"], "actions": actions or STOP_ACTIONS,
         })
     return {"automations_count": len(items), "automations": {str(i + 1): a for i, a in enumerate(items)}}
 
@@ -95,9 +103,13 @@ class StrategyDesk:
         self._breaches = 0
         self._blind = 0
         self._connected_at = 0
+        self._equity_before_gap: float | None = None  # last settled equity before OctoBot went away
+        self._gap_check = False
         self._automation_key = None
         self._ai_wake = asyncio.Event()
         self._load()
+        # survives bridge restarts, so a paper reset during a redeploy is still recognised
+        self._equity_before_gap = (self.cfg.get("lastEquity") or {}).get("equity")
 
     # ------------------------------------------------------------ storage ---
     def _path(self) -> str:
@@ -189,6 +201,9 @@ class StrategyDesk:
                 msg = str(err)[:160]
                 if msg != self.ai_error:
                     self.c.add_log("warn", f"AI 行情判断失败：{msg}")
+                notifier = getattr(self.c, "notifier", None)
+                if notifier and self.cfg["scheme"] in ("ai_regime", "ai_trade"):
+                    notifier.send(f"AI 行情判断失败：{msg}", "warn", key="ai-fail", quiet_s=3600)
                 self.ai_error = msg
 
     def refresh_ai(self) -> None:
@@ -398,7 +413,16 @@ class StrategyDesk:
         live = c.oct_equity_live
         if fresh_connection:
             self._connected_at = now_ms()
+            self._gap_check = self._equity_before_gap is not None
         settling = now_ms() - self._connected_at < 60 * 1000
+        if live and not settling:
+            if self._gap_check:
+                self._gap_check = False
+                self._check_paper_reset(self._equity_before_gap, live)
+            self._equity_before_gap = live
+            if now_ms() - (self.cfg.get("lastEquity") or {}).get("ts", 0) >= 60 * 1000:
+                self.cfg["lastEquity"] = {"equity": live, "ts": now_ms()}
+                self.save()
         if self.cfg["baseline"] is None and live and c._mode() == "paper" and not settling:
             self.cfg["baseline"] = {"equity": live, "ts": now_ms(), "scheme": self.cfg["scheme"]}
             self.save()
@@ -422,6 +446,21 @@ class StrategyDesk:
             return
         if fresh_connection or self._automation_key is None:
             await self._sync_safety_net()
+
+    def _check_paper_reset(self, before: float, after: float) -> None:
+        """Rebase the stop-loss when OctoBot reset the paper account instead of liquidating it."""
+        base = self.cfg.get("baseline")
+        if not base or self.c._mode() != "paper" or self.cfg.get("stopped"):
+            return
+        change = (after - before) / before
+        if abs(change) <= RESET_JUMP:
+            return
+        old = base.get("equity")
+        self.cfg["baseline"] = {"equity": after, "ts": now_ms(), "scheme": self.cfg["scheme"], "rebased": True}
+        self.save()
+        self._breaches = 0
+        self.c.add_log("risk", f"OctoBot 重启前后模拟资金从 {before:.2f} 变为 {after:.2f}（{change:+.1%}），离线期间不会交易，"
+                               f"判断为 OctoBot 重置了模拟资金而不是亏损；止损起点由 {old:.2f} 改为 {after:.2f}")
 
     async def _sync_safety_net(self) -> None:
         c = self.c
@@ -448,7 +487,8 @@ class StrategyDesk:
         c.add_log("risk", f"OctoBot 已暂停交易且不再报告资产：判断为 OctoBot 内置备用止损已触发（−{backup_pct(pct):g}%），"
                           "挂单已撤销、持币已卖出")
         self.cfg["stopped"] = {"ts": now_ms(), "equity": None, "baseline": base.get("equity"), "pct": pct,
-                               "loss": None, "scheme": self.cfg["scheme"], "by": "octobot"}
+                               "loss": None, "scheme": self.cfg["scheme"], "by": "octobot", "verified": None,
+                               "problem": "OctoBot 已暂停，无法再读取持仓，请到 OctoBot 的 Portfolio 页面确认已全部卖出"}
         self.save()
         try:
             await octo.save_automations(automation_config())
@@ -461,35 +501,74 @@ class StrategyDesk:
         finally:
             self._stopping = False
 
+    async def _liquidation_status(self, quote: str) -> dict:
+        """What is still open after the clear phase, read from OctoBot itself."""
+        orders = await octo.orders()
+        held = await octo.holdings()
+        if held is None:
+            return {"known": False, "orders": len(orders), "leftovers": {}, "equity": None}
+        leftovers = {cur: round(h["total"], 8) for cur, h in held.items()
+                     if cur != quote and h["value"] >= DUST_VALUE}
+        return {"known": True, "orders": len(orders), "leftovers": leftovers,
+                "equity": sum(h["value"] for h in held.values())}
+
     async def execute_stop(self, reason: str | None = None) -> None:
+        """Cancel, sell everything, verify it really happened, then pause and park on 观望."""
         c = self.c
         self._stopping = True
         base = self.cfg.get("baseline") or {}
         pct = self.cfg["stopLoss"].get(self.cfg["scheme"], 0)
+        quote = c.profile.get("referenceMarket", "USDT")
         equity = c.oct_equity_live or c.oct_equity
         loss = (1 - equity / base["equity"]) * 100 if equity and base.get("equity") else None
         c.add_log("risk", reason or f"触发止损：权益 {equity:.2f} 低于止损线（方案启动时 {base.get('equity', 0):.2f}，"
                                     f"最大亏损 {pct:g}%，当前 −{loss:.2f}%）。正在撤单、卖出全部持币并停止交易")
         self.cfg["stopped"] = {"ts": now_ms(), "equity": equity, "baseline": base.get("equity"),
-                               "pct": pct, "loss": loss, "scheme": self.cfg["scheme"]}
+                               "pct": pct, "loss": loss, "scheme": self.cfg["scheme"], "verified": None}
         self.save()
+        status = {"known": False, "orders": None, "leftovers": {}}
         try:
-            await octo.save_automations(automation_config(immediate=True))
+            # 1. cancel and sell every second (also undoes orders a strategy re-creates)
+            await octo.save_automations(automation_config(immediate=True, actions=CLEAR_ACTIONS))
             await octo.start_automations()
-            for _ in range(20):  # the stop automation fires every second until removed
-                await asyncio.sleep(1.5)
-                if not await octo.orders():
+            clean_polls, deadline = 0, now_ms() + CLEAR_TIMEOUT * 1000
+            while now_ms() < deadline:
+                await asyncio.sleep(2)
+                status = await self._liquidation_status(quote)
+                clean = status["known"] and not status["orders"] and not status["leftovers"]
+                clean_polls = clean_polls + 1 if clean else 0
+                if clean_polls >= 2:
                     break
-            await asyncio.sleep(3)  # let the market sells settle
+            # 2. pause trading whatever the outcome, so a failed sale cannot keep trading
+            await octo.save_automations(automation_config(immediate=True, actions=PAUSE_ACTIONS))
+            await octo.start_automations()
+            await asyncio.sleep(3)
             await octo.save_automations(automation_config())
             await octo.start_automations()
             await octo.select_profile(IDLE_PROFILE)  # a later restart must not resume trading
             self._automation_key = None
-            c.add_log("risk", "止损完成：挂单已撤销，持币已卖成 USDT，交易已暂停；OctoBot 下次启动将使用「观望」")
         except octo.OctoBotError as err:
-            c.add_log("risk", f"止损执行出错：{err}。请立即在 OctoBot 中手动撤单并停止策略")
-        finally:
+            self.cfg["stopped"].update(verified=False, problem=f"止损执行出错：{err}")
+            self.save()
+            c.add_log("risk", f"止损执行出错：{err}。请立即在 OctoBot 中手动撤单、卖出并停止策略")
             self._stopping = False
+            return
+        verified = status["known"] and not status["orders"] and not status["leftovers"]
+        problem = None
+        if not status["known"]:
+            problem = "无法读取 OctoBot 持仓，未能确认是否全部卖出"
+        elif status["orders"]:
+            problem = f"仍有 {status['orders']} 张挂单未撤销"
+        elif status["leftovers"]:
+            problem = "仍有持币未卖出：" + "、".join(f"{k} {v:g}" for k, v in status["leftovers"].items())
+        self.cfg["stopped"].update(verified=verified, problem=problem, finalEquity=status.get("equity"))
+        self.save()
+        if verified:
+            c.add_log("risk", f"止损完成并已核实：挂单已撤销，只剩 {quote}（{status['equity']:.2f}），交易已暂停；"
+                              "OctoBot 下次启动将使用「观望」")
+        else:
+            c.add_log("risk", f"止损未完全执行：{problem}。交易已暂停，请立即到 OctoBot 检查并手动处理")
+        self._stopping = False
 
     # ----------------------------------------------------------- snapshot ---
     def snapshot(self) -> dict:

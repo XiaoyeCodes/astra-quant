@@ -1,4 +1,4 @@
 #!/bin/sh
 set -e
-python /astra-tools/patch_octobot.py /octobot
-exec /octobot/docker-entrypoint.sh "$@"
+# Patch, run and supervise OctoBot (restarts the container when OctoBot hangs).
+exec python /astra-tools/octobot_supervisor.py "$@"

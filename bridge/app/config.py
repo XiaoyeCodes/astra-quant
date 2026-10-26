@@ -22,6 +22,8 @@ class Settings:
         self.octobot_user_dir = os.getenv("OCTOBOT_USER_DIR", "/octobot-user")
         # Public URL of OctoBot for the browser (link button in the cockpit)
         self.octobot_public_url = os.getenv("OCTOBOT_PUBLIC_URL", "http://localhost:5001")
+        # Only when OctoBot's own web password is on: the bridge logs in with it
+        self.octobot_password = os.getenv("OCTOBOT_PASSWORD", "")
 
         # Bitget API key for the bridge. Read-only permission is enough and recommended.
         self.bitget_key = os.getenv("BITGET_API_KEY", "").strip()
@@ -61,6 +63,19 @@ class Settings:
         # Where the bridge keeps its small equity history file
         self.data_dir = os.getenv("DATA_DIR", "/data")
         self.web_dir = os.getenv("WEB_DIR", os.path.join(os.path.dirname(__file__), "..", "..", "web"))
+        # Push notifications (risk events, OctoBot offline, AI failures)
+        self.notify_telegram_token = os.getenv("NOTIFY_TELEGRAM_TOKEN", "").strip()
+        self.notify_telegram_chat = os.getenv("NOTIFY_TELEGRAM_CHAT_ID", "").strip()
+        self.notify_webhook_url = os.getenv("NOTIFY_WEBHOOK_URL", "").strip()
+        self.notify_webhook_type = (os.getenv("NOTIFY_WEBHOOK_TYPE", "").strip().lower() or "generic")
+        if self.notify_webhook_type not in ("generic", "wecom", "feishu", "dingtalk", "serverchan"):
+            self.notify_webhook_type = "generic"
+        self.notify_proxy = os.getenv("NOTIFY_PROXY", "").strip()
+        # alert when OctoBot stays unreachable this long outside a planned strategy switch
+        self.notify_offline_after = float(os.getenv("NOTIFY_OFFLINE_AFTER", "") or 120)
+
+        # Host names the cockpit may be opened with (anything else is refused: DNS rebinding)
+        self.allowed_hosts = set(_list("ALLOWED_HOSTS", "localhost,127.0.0.1,::1"))
         self.host = os.getenv("HOST", "0.0.0.0")
         self.port = int(os.getenv("PORT", "8080"))
 

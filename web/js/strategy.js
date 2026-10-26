@@ -35,6 +35,10 @@
     }));
     $('slSave').addEventListener('click', () => act('schemeMsg', 'stoploss', { scheme: S.pick, pct: $('slInput').value }));
     $('aiRefresh').addEventListener('click', () => act('schemeMsg', 'ai-refresh', {}));
+    $('notifyTest').addEventListener('click', async () => {
+      msg('notifyMsg', '发送中…');
+      try { msg('notifyMsg', await A.feed.notifyTest()); } catch (e) { msg('notifyMsg', e.message, true); }
+    });
     $('slInput').addEventListener('input', () => { S.slFor = S.pick; });
     $('stList').addEventListener('click', (e) => {
       const go = e.target.closest('[data-go]');
@@ -110,6 +114,7 @@
     $('schemeGo').textContent = S.pick === st.scheme ? '重新启动方案（以当前资金为起点）' : `启动「${SCHEME_LABEL[S.pick]}」方案`;
     if (st.blocked && !st.switching) msg('schemeMsg', st.blocked, true);
     renderStatus(s, st);
+    renderNotify(s.notify);
     renderRadar(s, st);
     renderList(s, st);
   }
@@ -135,9 +140,25 @@
       const what = x.by === 'octobot'
         ? `OctoBot 内置备用止损先触发（起点资金 ${A.fmt(x.baseline || 0, 2)}，上限 ${x.pct}%）。`
         : `资金从 ${A.fmt(x.baseline || 0, 2)} 跌到 ${A.fmt(x.equity || 0, 2)}（${x.loss ? '−' + x.loss.toFixed(2) + '%' : '—'}，上限 ${x.pct}%）。`;
-      html += `<div class="note-box bad"><b>已触发止损</b> · ${timeOf(x.ts)}<br>${what}已撤单、卖成 USDT 并暂停交易，OctoBot 配置已改为观望。重新启动一个方案或手动选择策略后恢复。</div>`;
+      const result = x.verified === true ? `已核实：挂单已撤销，只剩 USDT${x.finalEquity ? `（${A.fmt(x.finalEquity, 2)}）` : ''}，交易已暂停。`
+        : x.problem ? `<b>未能确认全部执行：${A.esc(x.problem)}。</b>交易已暂停，请到 OctoBot 检查并手动处理。`
+        : '正在核实撤单和卖出结果…';
+      html += `<div class="note-box bad"><b>已触发止损</b> · ${timeOf(x.ts)}<br>${what}${result} OctoBot 配置已改为观望，重新启动一个方案或手动选择策略后恢复。</div>`;
     }
     $('schemeStatus').innerHTML = html;
+  }
+
+  const CHANNEL = { telegram: 'Telegram', wecom: '企业微信', feishu: '飞书', dingtalk: '钉钉', serverchan: 'Server 酱', generic: 'Webhook' };
+  function renderNotify(n) {
+    const el = $('notifyStatus');
+    if (!n || !n.channels.length) {
+      el.textContent = '未配置。在 .env 填写 NOTIFY_TELEGRAM_TOKEN / NOTIFY_TELEGRAM_CHAT_ID，或 NOTIFY_WEBHOOK_URL（可选 NOTIFY_WEBHOOK_TYPE=wecom/feishu/dingtalk/serverchan）后重启。止损、OctoBot 离线、策略切换会推送到手机。';
+      $('notifyTest').disabled = true;
+      return;
+    }
+    $('notifyTest').disabled = false;
+    el.textContent = `已启用：${n.channels.map((c) => CHANNEL[c] || c).join('、')} · 已发送 ${n.sent} 条${n.lastError ? ` · 上次失败：${n.lastError}` : ''}`;
+    el.classList.toggle('bad', !!n.lastError);
   }
 
   function verdictHtml(title, v, extra) {

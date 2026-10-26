@@ -80,7 +80,7 @@ Bitget 网站 → 头像 → **API 管理** → 创建 API：
 | **指标选策略** | 每 10 分钟用 ADX、ATR、均线斜率、布林带宽度判断行情并映射到策略；连续 3 次一致才切换。不需要 Key |
 
 - 自动切换只在 **模拟盘** 下工作，每个策略至少运行 12 小时才会被换掉（`.env` 中可调）。
-- **止损**：从“启动方案时的资金”算起，亏损达到设定比例（连续约 9 秒确认）时，OctoBot 会 **撤销所有挂单 → 全部卖成 USDT → 停止策略并暂停交易**，并把配置改为“观望”，之后重启也不会恢复交易。重新启动方案或手动选择策略后恢复。OctoBot 内部同时设置了一条同样动作的自动化作为备用（驾驶舱或桥接服务停止时也生效，从 OctoBot 本次启动算起）。
+- **止损**：从“启动方案时的资金”算起，亏损达到设定比例（连续约 9 秒确认）时，OctoBot 先 **撤销所有挂单、全部卖成 USDT**，驾驶舱从 OctoBot 的持仓表**核实只剩 USDT** 后再 **暂停交易**，并把配置改为“观望”，之后重启也不会恢复交易；没卖干净会明确提示“止损未完全执行”。OctoBot 重启后模拟资金被重置（离线前后相差超过 5%）会被识别为重置而不是亏损，止损起点随之调整。重新启动方案或手动选择策略后恢复。OctoBot 内部同时设置了一条同样动作的自动化作为备用（驾驶舱或桥接服务停止时也生效，从 OctoBot 本次启动算起）。
 - **AI 功能**：在 `.env` 填 `LLM_API_KEY`（DeepSeek 的 Key，https://platform.deepseek.com ），`LLM_MODEL` 默认使用 `deepseek-flash`，然后重新运行 `start.bat`。同一个 Key 同时给 OctoBot 的 AI 策略和驾驶舱的 AI 行情判断使用；AI 信号预设继承这个模型设置。Key 只保存在你本机的 `.env`。`LLM_DAILY_TOKEN_LIMIT` 可以限制 OctoBot 每天的用量。
 
 2026-10-25 的真实行情模拟盘观察已完成 30 分钟，结果见 [测试报告](docs/SOAK_REPORT_2026-10-25.md)。这不是每个策略各跑 30 分钟，也不能证明胜率或持续盈利。启动时会自动应用固定版本 OctoBot 的 DeepSeek JSON 输出适配、跨策略模拟持币清算修复，并同步已安装插件的版本信息，避免把导入预设误判成插件过期。不要单独复制 `octobot/` 目录运行，应从项目根目录启动。
@@ -110,6 +110,12 @@ OctoBot 短暂断开（重启、切换策略）时，驾驶舱保留断开前的
 
 顶部状态：`演示 DEMO`（未连接 OctoBot）、`模拟盘 PAPER`、`实盘 LIVE`、`待机 IDLE`（已连接但还没有订单）、`只读 WATCH`（只连了 Bitget 账户）。
 
+### 安全与通知
+- 驾驶舱和 OctoBot 只监听本机 127.0.0.1。驾驶舱会拒绝其他网页发来的跨站请求和改写主机名（DNS 重绑定）的请求。
+- **建议给 OctoBot 网页设置密码**（OctoBot → Accounts → Interfaces → Web），并在 `.env` 填同一个 `OCTOBOT_PASSWORD`，驾驶舱会自动登录。否则其他网页理论上可以通过 OctoBot 的 GET 接口让它停机或切换策略。
+- **手机通知**：在 `.env` 填 Telegram（`NOTIFY_TELEGRAM_TOKEN`、`NOTIFY_TELEGRAM_CHAT_ID`）或 Webhook（`NOTIFY_WEBHOOK_URL`，`NOTIFY_WEBHOOK_TYPE` 可选 wecom / feishu / dingtalk / serverchan）。止损触发与核实结果、方案启动、策略切换、OctoBot 计划外离线超过 2 分钟、AI 失败都会推送。设置页有“发送测试通知”。
+- **审计日志**：所有操作和事件保存在 `data/logs/astra-日期.jsonl`，保留 30 天。
+
 ### 可选：给驾驶舱配置 Bitget 只读密钥
 在 Bitget 再创建一个**只有读取权限**的 API，填入 `.env` 的 `BITGET_API_KEY / SECRET / PASSPHRASE`，然后重新运行 `start.bat`。配置后，实盘时总权益直接取自 Bitget 账户余额。
 
@@ -122,6 +128,8 @@ OctoBot 短暂断开（重启、切换策略）时，驾驶舱保留断开前的
 - **OctoBot 一直重启，日志里有 `KeyError: 'default'`**：插件没装上。运行 `docker compose run --rm --no-deps octobot tentacles --install --all` 后再 `start.bat`（新版 `start.bat` 首次运行会自动执行）。
 - **电脑休眠或重启后 OctoBot 页面打不开（容器显示 unhealthy）**：Docker 启动时网络还没就绪，OctoBot 连不上交易所后卡住。运行 `docker compose restart octobot` 即可。
 - **切换策略提示“新加入的策略需要先重启一次 OctoBot”**：OctoBot 只在启动时读取策略列表，运行 `docker compose restart octobot` 后再切换。
+- **电脑重启后 Docker Desktop 打不开或启动即退出**：日志里有 `docker-secrets-engine\engine.sock ... cannot be accessed`。这是非正常关机留下的 socket 文件，Windows 删不掉，在 PowerShell 运行 `wsl -d Ubuntu-24.04 -- rm -f /mnt/c/Users/<你的用户名>/AppData/Local/docker-secrets-engine/engine.sock`（发行版名称以 `wsl -l` 为准），再打开 Docker Desktop。
+- **OctoBot 卡住不响应**：容器里的看门狗会在 OctoBot 连续 10 分钟无响应后自动重启它（首次启动有 15 分钟宽限），一般不需要手动处理；急用时可运行 `docker compose restart octobot`。
 - **端口被占用**：修改 `docker-compose.yml` 中的 `127.0.0.1:8080` 或 `127.0.0.1:5001` 左边的端口号。
 
 ## 六、项目结构

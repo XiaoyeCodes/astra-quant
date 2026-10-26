@@ -56,3 +56,13 @@ docker compose up -d --no-deps bridge
 从项目根目录使用 Docker Compose 启动，`tools/octobot_entrypoint.sh` 会调用有版本检查的补丁。它们作用于被忽略的上游插件文件，源码补丁和测试在 `tools/`、`tests/`。不要只复制修改后的 vendor 文件而遗漏启动适配。策略切换及方案启动在连接恢复后需要等待 60 秒，让资产估值初始化完成。
 
 已知待查：模拟成交记录费用为约 0.2%，与预设 0.1% 不一致；旧页面重建期间曾有 348 次异常，仅保存到计数，新版观察未复现。抄底/反转未触发下单，补仓止盈止损仍未自然成交。休眠恢复仍未做专项测试。
+
+## 2026-10-26 商业级审查与第一轮加固
+
+详细见 `HARDENING_2026-10-26.md`。分支 `feat/commercial-hardening`。
+
+- 新增：跨站/DNS 重绑定防护（`bridge/app/security.py`）、OctoBot 看门狗与优雅停机（`tools/octobot_supervisor.py`，入口脚本已改为调用它）、止损先清仓核实再暂停、模拟资金重置识别、手机通知（`bridge/app/notify.py`）、审计日志（`data/logs/`）、OctoBot 密码登录支持（`OCTOBOT_PASSWORD`）、固定依赖版本、GitHub Actions CI。
+- 回归：`python -m unittest discover -s tests -v`（66 项）与 `node --test tests/test_feed.cjs`（4 项）。
+- 交付时状态：模拟盘，profile `astra_idle`，方案 `manual`，止损 10%，起点 997.15 USDT（OctoBot 在重建容器时把模拟资金从约 2200 重置为 1000，见报告第二节第 4 条）。无挂单。
+- 注意：bridge 现在只接受 `Host` 为 localhost/127.0.0.1/::1 的请求；写操作必须带 `Content-Type: application/json`。用 curl 调试写接口时要加这个头。
+- 待用户决定：是否给 OctoBot 网页设密码；配置通知渠道；实盘风控是否开放。

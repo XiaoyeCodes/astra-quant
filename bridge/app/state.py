@@ -15,7 +15,9 @@ from typing import Any
 
 from . import octobot_client as octo
 from . import strategies
+from .audit import AuditLog
 from .autopilot import StrategyDesk
+from .notify import Notifier
 from .bitget_client import BitgetClient
 from .config import VERSION, settings
 
@@ -138,6 +140,12 @@ class Cockpit:
         self.equity_profile: str | None = None  # profile the equity history belongs to
         self.log: collections.deque = collections.deque(maxlen=160)
         self._log_seq = 0
+        self.audit = AuditLog(os.path.join(settings.data_dir, "logs"))
+        self.notifier = Notifier()
+        self._offline_notified = False
+        for entry in self.audit.recent(160):  # the console survives a bridge restart
+            self.log.append(entry)
+            self._log_seq = max(self._log_seq, int(entry.get("id") or 0))
         self._seen_trades: set[str] = set()
         self._seen_orders: set[str] = set()
         # newest fill already reported; OctoBot re-sends old fills after a restart, and anything older
@@ -153,7 +161,24 @@ class Cockpit:
     # ------------------------------------------------------------ helpers ---
     def add_log(self, level: str, msg: str) -> None:
         self._log_seq += 1
-        self.log.append({"id": self._log_seq, "t": now_ms(), "level": level, "msg": msg})
+        entry = {"id": self._log_seq, "t": now_ms(), "level": level, "msg": msg}
+        self.log.append(entry)
+        self.audit.write(entry)
+        if level == "risk":
+            self.notifier.send(msg, "risk", quiet_s=60)
+
+    def _check_offline(self) -> None:
+        """Alert once when OctoBot stays unreachable outside a planned strategy switch."""
+        down = not self.link_octobot["ok"] and self._octo_lost_at is not None
+        if down and not self.desk.switching and not self._offline_notified \
+                and now_ms() - self._octo_lost_at >= settings.notify_offline_after * 1000:
+            self._offline_notified = True
+            minutes = (now_ms() - self._octo_lost_at) / 60000
+            self.notifier.send(f"OctoBot 已离线 {minutes:.0f} 分钟（{self.link_octobot.get('error') or '无响应'}），"
+                               "期间不会交易，止损也无法执行。", "warn", key="octobot-offline", quiet_s=1800)
+        elif self.link_octobot["ok"] and self._offline_notified:
+            self._offline_notified = False
+            self.notifier.send("OctoBot 已恢复连接。", "info", key="octobot-online", quiet_s=60)
 
     def _history_path(self) -> str:
         return os.path.join(settings.data_dir, "equity_history.json")
@@ -215,6 +240,7 @@ class Cockpit:
 
     # -------------------------------------------------------------- loops ---
     async def start(self) -> None:
+        self.notifier.start()
         await self.bitget.start()
         self.add_log("info", f"桥接服务 v{VERSION} 启动，OctoBot 地址 {settings.octobot_url}")
         if not settings.bitget_private:
@@ -229,6 +255,7 @@ class Cockpit:
         for t in self.tasks:
             t.cancel()
         self._persist_history()
+        await self.notifier.stop()
         await self.bitget.close()
 
     async def _loop_market(self) -> None:
@@ -320,6 +347,7 @@ class Cockpit:
                     self._octo_lost_at = now_ms()
                 self.link_octobot.update(ok=False, error=msg)
             tick += 1
+            self._check_offline()
             await asyncio.sleep(settings.octobot_period if self.link_octobot["ok"] else 6)
 
     async def _loop_private(self) -> None:
@@ -572,6 +600,7 @@ class Cockpit:
             },
             "profile": self.profile,
             "strategy": self.desk.snapshot(),
+            "notify": self.notifier.status(),
             "regime": self.desk.regime,
             "focus": {"symbol": self.focus, "type": "swap" if ":" in self.focus else "spot"},
             "symbols": self.watch_symbols(),

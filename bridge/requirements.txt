@@ -1,3 +1,4 @@
-starlette>=0.37,<2
-uvicorn[standard]>=0.29
-ccxt>=4.4,<5
+# Pinned to the versions verified in the paper-trading tests; bump deliberately and re-run tests/
+starlette==1.9.0
+uvicorn[standard]==0.54.0
+ccxt==4.5.90
