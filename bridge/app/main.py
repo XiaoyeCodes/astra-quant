@@ -8,15 +8,17 @@ import contextlib
 import json
 import logging
 import os
+import time
 
 from starlette.applications import Starlette
 from starlette.middleware import Middleware
 from starlette.requests import Request
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, Response
 from starlette.routing import Mount, Route, WebSocketRoute
 from starlette.staticfiles import StaticFiles
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
+from . import health as healthcheck
 from .config import settings
 from .octobot_client import OctoBotError
 from .security import LocalOnlyGuard
@@ -34,6 +36,18 @@ async def state_endpoint(request: Request) -> JSONResponse:
 
 async def health(request: Request) -> JSONResponse:
     return JSONResponse({"ok": True})
+
+
+async def health_report(request: Request) -> JSONResponse:
+    return JSONResponse(healthcheck.report(cockpit))
+
+
+async def diagnostics(request: Request) -> JSONResponse:
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    body = healthcheck.redact(json.dumps(healthcheck.diagnostics(cockpit), ensure_ascii=False, default=str))
+    return Response(body, media_type="application/json", headers={
+        "Content-Disposition": f'attachment; filename="astra-diagnostics-{stamp}.json"',
+        "Cache-Control": "no-store"})
 
 
 async def focus_endpoint(request: Request) -> JSONResponse:
@@ -178,6 +192,8 @@ async def lifespan(app):
 routes = [
     Route("/api/health", health),
     Route("/api/state", state_endpoint),
+    Route("/api/health/report", health_report),
+    Route("/api/diagnostics", diagnostics),
     Route("/api/focus", focus_endpoint, methods=["POST"]),
     Route("/api/control/cancel-all", cancel_all, methods=["POST"]),
     Route("/api/control/stop-bot", stop_bot, methods=["POST"]),

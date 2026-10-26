@@ -256,6 +256,15 @@
     <button type="button" class="act" id="notifyTest">发送测试通知</button>
     <p class="hint msg" id="notifyMsg" role="status"></p>
   </section>
+  <section class="drawer-sec" id="secHealth">
+    <h4>系统体检 · <span id="healthSum">—</span></h4>
+    <div class="health" id="healthList"></div>
+    <div class="act-row">
+      <button type="button" class="act" id="healthRun">重新检查</button>
+      <a class="act" id="diagExport" href="/api/diagnostics" download>导出诊断包</a>
+    </div>
+    <p class="hint">诊断包包含配置是否填写、运行状态和最近日志，不含任何密钥，可以直接发给技术支持。</p>
+  </section>
   <section class="drawer-sec" id="secStrats">
     <h4>策略 · 手动切换</h4>
     <div class="st-list" id="stList"></div>

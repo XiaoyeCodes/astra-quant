@@ -40,6 +40,7 @@
       try { msg('notifyMsg', await A.feed.notifyTest()); } catch (e) { msg('notifyMsg', e.message, true); }
     });
     ['slInput', 'trailInput', 'dailyInput'].forEach((id) => $(id).addEventListener('input', () => { S.slFor = S.pick; }));
+    $('healthRun').addEventListener('click', () => { S.healthAt = 0; checkHealth(); });
     $('handoverSel').addEventListener('change', (e) => act('schemeMsg', 'handover', { policy: e.target.value }));
     $('stList').addEventListener('click', (e) => {
       const go = e.target.closest('[data-go]');
@@ -121,6 +122,7 @@
     if (st.blocked && !st.switching) msg('schemeMsg', st.blocked, true);
     renderStatus(s, st);
     renderNotify(s.notify);
+    checkHealth();
     renderRadar(s, st);
     renderList(s, st);
   }
@@ -196,6 +198,22 @@
       html += `<div class="note-box bad"><b>已触发止损</b> · ${timeOf(x.ts)}<br>${what}${result} OctoBot 配置已改为观望，重新启动一个方案或手动选择策略后恢复。</div>`;
     }
     $('schemeStatus').innerHTML = html;
+  }
+
+  const HEALTH_TAG = { ok: '正常', warn: '注意', bad: '异常' };
+  S.healthAt = 0;
+  async function checkHealth() {
+    if ($('settings').hidden || A.feed.usingDemo || Date.now() - S.healthAt < 15000) return;
+    S.healthAt = Date.now();
+    try {
+      const r = await A.feed.health();
+      $('healthSum').innerHTML = `<span class="hl-${r.status}">${HEALTH_TAG[r.status]}</span>`;
+      $('healthList').innerHTML = r.checks.map((c) => `<div class="hl-row hl-${c.status}"><i></i><b>${A.esc(c.label)}</b>
+        <span>${A.esc(c.detail)}${c.fix && c.status !== 'ok' ? `<em>${A.esc(c.fix)}</em>` : ''}</span></div>`).join('');
+    } catch (e) {
+      $('healthSum').textContent = '无法检查';
+      $('healthList').innerHTML = `<div class="hl-row hl-bad"><i></i><b>桥接服务</b><span>${A.esc(e.message)}</span></div>`;
+    }
   }
 
   const CHANNEL = { telegram: 'Telegram', wecom: '企业微信', feishu: '飞书', dingtalk: '钉钉', serverchan: 'Server 酱', generic: 'Webhook' };

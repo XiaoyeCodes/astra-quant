@@ -80,3 +80,4 @@ docker compose up -d --no-deps bridge
 - 三条止损线（最大止损、回撤止损、单日亏损上限），共用“清仓核实”流程；止损后不再暂停交易者，而是切到观望并重启（暂停会导致 OctoBot 下次启动重置模拟资金）。
 - 模拟盘手续费改为配置费率（启动补丁 `patch_paper_fees`，`tools/octobot_paper_fees.py`）；此前 ccxt 默认 0.2%。
 - 详见 `docs/RISK_FEES_2026-10-26.md`。交付状态：观望，USDT 约 997.82，手动方案 10% / 8% / 4%。Python 测试 98 项。
+- 系统体检（`bridge/app/health.py`）：8 项检查 + 诊断包导出（脱敏）。实测发现手续费检查需只看最近 6 笔成交，因为补丁前的 0.2% 旧成交仍在 OctoBot 成交列表里。
