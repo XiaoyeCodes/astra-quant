@@ -136,10 +136,9 @@ OctoBot 短暂断开（重启、切换策略）时，驾驶舱保留断开前的
 - **OctoBot 一直重启，日志里有 `KeyError: 'default'`**：插件没装上。运行 `docker compose run --rm --no-deps octobot tentacles --install --all` 后再 `start.bat`（新版 `start.bat` 首次运行会自动执行）。
 - **电脑休眠或重启后 OctoBot 页面打不开（容器显示 unhealthy）**：Docker 启动时网络还没就绪，OctoBot 连不上交易所后卡住。运行 `docker compose restart octobot` 即可。
 - **切换策略提示“新加入的策略需要先重启一次 OctoBot”**：OctoBot 只在启动时读取策略列表，运行 `docker compose restart octobot` 后再切换。
-- **电脑重启后 Docker Desktop 打不开或启动即退出**：日志里有 `docker-secrets-engine\engine.sock ... cannot be accessed`。这是非正常关机留下的 socket 文件，Windows 删不掉，在 PowerShell 运行 `wsl -d Ubuntu-24.04 -- rm -f /mnt/c/Users/<你的用户名>/AppData/Local/docker-secrets-engine/engine.sock`（发行版名称以 `wsl -l` 为准），再打开 Docker Desktop。
+- **电脑重启后 Docker Desktop 打不开或启动即退出**：错误窗口或日志里有 `initializing Secrets Engine ... docker-secrets-engine\engine.sock ... cannot be accessed`。先点 Quit（**不要**点 Reset to factory defaults，会清空所有容器和数据）。这是关机时留下的 socket 文件，Windows 删不掉，在 PowerShell 运行 `wsl -d Ubuntu-24.04 -- rm -f /mnt/c/Users/<你的用户名>/AppData/Local/docker-secrets-engine/engine.sock`（发行版名称以 `wsl -l` 为准），再打开 Docker Desktop。
 - **OctoBot 卡住不响应**：容器里的看门狗会在 OctoBot 连续 10 分钟无响应后自动重启它（首次启动有 15 分钟宽限），一般不需要手动处理；急用时可运行 `docker compose restart octobot`。
-- **端口被占用**：修改 `docker-compose.yml` 中的 `127.0.0.1:8080` 或 `127.0.0.1:5001` 左边的端口号。
-
+- **端口被占用**：驾驶舱端口在 `.env` 里设 `COCKPIT_PORT=8081`（或其他空闲端口），然后用 http://localhost:8081 打开；OctoBot 的 5001 端口在 `docker-compose.yml` 里改。
 ## 六、项目结构
 
 ```

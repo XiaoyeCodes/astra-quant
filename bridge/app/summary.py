@@ -42,11 +42,17 @@ def _stopped_story(st: dict, quote: str) -> dict:
     rule = st.get("rule") or "base"
     label = st.get("ruleLabel") or RULE_LABELS.get(rule, "止损")
     if st.get("by") == "octobot":
-        return {"tone": "warn", "kind": "stopped", "title": "OctoBot 的备用止损停止了交易",
+        final = st.get("finalEquity")
+        now = (st.get("problem") if st.get("verified") is False or st.get("problem") else
+               f"已核实只剩 {quote}（{final:.2f}），停在观望，不会再下单" if st.get("verified") and final else
+               "已切换到观望，正在核实持仓")
+        return {"tone": "bad" if st.get("verified") is False else "warn", "kind": "stopped",
+                "title": "OctoBot 的备用止损停止了交易",
                 "lines": [f"什么时候：{when(st.get('ts'))}",
-                          "为什么：桥接服务当时没有运行，OctoBot 自带的备用止损替它执行了撤单和卖出",
-                          f"现在：{st.get('problem') or '已切换到观望'}"],
-                "next": "到 OctoBot 的 Portfolio 页面确认只剩 USDT，然后在设置里重新启动一个方案"}
+                          "为什么：亏损超过了备用止损线，而桥接服务当时没有运行，OctoBot 自带的备用止损替它撤单、卖出并切换到观望",
+                          f"现在：{now}"],
+                "next": ("到 OctoBot 检查挂单和持仓，手动处理" if st.get("verified") is False else
+                         "确认原因后（比如电脑休眠导致桥接服务停了），在设置里重新启动一个方案")}
     if rule == "manual":
         why = "你点了「停止并卖出全部」"
     else:

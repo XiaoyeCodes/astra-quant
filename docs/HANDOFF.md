@@ -93,3 +93,14 @@ docker compose up -d --no-deps bridge
   - 请求体不是 UTF-8 时返回 400 而不是 500。
   - OctoBot 离线时设置抽屉的通知和体检区域不更新。
 - **未实测**：2026-10-27 Docker Desktop 启动后弹错误窗口并退出（前一晚 23:12 因 Windows 注销或关机退出），本轮界面在本机单独运行的桥接服务上验证（OctoBot 离线状态）。“停止并卖出全部”和日报真实推送需在 Docker 恢复、配置通知渠道后实测。Python 测试 125 项。
+
+## 2026-10-27 T0.2 备用止损、模拟资金重置的真正根因、新功能实测（分支 feat/beginner-mode）
+
+- **T0.2**：备用止损动作改为 `CancelOpenOrders → SellAllCurrencies → StopTrading`。启动补丁 `patch_backup_stop` 改造 OctoBot 自带的 StopTrading：先等 12 秒让卖出后的模拟账户存盘（`tools/octobot_backup_stop.py`），再撤一次单，切到 `astra_idle` 并重启，不再暂停交易者；同时写 `octobot/user/astra_backup_stop.json`。桥接服务重连时读到这个标记，记录为“OctoBot 的备用止损”，核实只剩 USDT，且不会把这次下跌误判为“模拟资金被重置”。观望下不再安装备用止损。
+  - 实测：指数持仓时停掉桥接服务，装一个 −0.005% 的备用止损 → 20:46:59 卖出 SOL/BTC/ETH → 20:47:11 写标记、切观望、重启 → 存档 USDT 998.30 → 启动桥接服务后记录“备用止损已核实：只剩 USDT（998.30）”。
+- **真正根因**：OctoBot 正常停止时把内存里的 `ending_portfolio` 写进存档，没有成交的运行里它是 None，会覆盖掉正确存档，下次启动按初始资金重建（实测观望时重启容器：997.82 → 1000）。启动补丁 `patch_keep_paper_account` 让它停止前先填好当前持仓；实测无成交连续重启，持仓不变。详见 `docs/RISK_FEES_2026-10-26.md` 补充。
+- **实测**：简洁首页“停止并卖出全部”（浏览器里点击、输入确认）→ 卖出 BTC/ETH/SOL，核实只剩 USDT 996.37，切到观望，状态卡写明“你点了「停止并卖出全部」”；手动停止的日志改称“停止完成”。日报用真实数据预览正确（含同期持有 BTC 对比）。
+- **端口**：本机 8080 被其他程序（dsh-remembers）占用，驾驶舱端口改为可配置 `COCKPIT_PORT`（仍只绑定 127.0.0.1），本次运行在 8081。
+- **Docker**：10-27 再次出现 `docker-secrets-engine\engine.sock` 残留导致 Docker Desktop 启动失败，用 WSL 删除后恢复（README 故障排查已补充）。
+- 已知小问题：“今天”的盈亏从当天第一笔资金或方案启动时（较晚者）算起，同一天内切换方案后“今天”等于“自方案启动”。
+- 交付状态：模拟盘，观望，USDT 996.37，驾驶舱 http://localhost:8081。Python 测试 134 项。

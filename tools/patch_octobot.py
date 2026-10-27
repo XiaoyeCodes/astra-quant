@@ -67,6 +67,78 @@ def patch_paper_fees(root):
     print('ASTRA: applied paper fee patch (profile simulator fees for Bitget paper trading)')
 
 
+BACKUP_MARKER = "# ASTRA backup stop v1"
+BACKUP_ANCHOR = (
+    "        # select non trading profile\n"
+    "        config = interfaces_util.get_edited_config(dict_only=False)\n"
+    "        config.select_profile(self.PROFILE_ID)\n"
+)
+BACKUP_CODE = (
+    "        " + BACKUP_MARKER + ": wait for the sold paper account to be saved, then park on 观望\n"
+    "        from octobot_backup_stop import before_restart\n"
+    "        profile_id = await before_restart(self.PROFILE_ID)\n"
+    "        await super().process(execution_details)  # orders a strategy placed meanwhile\n"
+    "        config = interfaces_util.get_edited_config(dict_only=False)\n"
+    "        config.select_profile(profile_id)\n"
+)
+
+
+def patch_backup_stop(root):
+    """StopTrading parks on astra_idle after the paper save (optional: skipped if layout changed)."""
+    target = Path(root) / 'tentacles/Automation/actions/stop_trading_action/stop_trading.py'
+    if not target.exists():
+        return
+    source = target.read_text(encoding='utf-8')
+    if BACKUP_MARKER in source:
+        return
+    if source.count(BACKUP_ANCHOR) != 1:
+        print('ASTRA: StopTrading layout changed; backup stop patch skipped')
+        return
+    updated = source.replace(BACKUP_ANCHOR, BACKUP_CODE)
+    compile(updated, str(target), 'exec')
+    target.write_text(updated, encoding='utf-8')
+    print('ASTRA: applied backup stop patch (StopTrading parks on astra_idle without pausing)')
+
+
+KEEP_MARKER = "# ASTRA keep paper account v1"
+KEEP_ANCHOR = (
+    "    async def stop(self):\n"
+    "        await self.save_historical_portfolio_value(update_data=False)\n"
+)
+KEEP_CODE = (
+    "    async def stop(self):\n"
+    "        " + KEEP_MARKER + ": a session without any portfolio change never filled ending_portfolio,\n"
+    "        # and saving None here made the next start rebuild the paper account from the starting funds\n"
+    "        if self.ending_portfolio is None:\n"
+    "            self._update_portfolios()\n"
+    "        await self.save_historical_portfolio_value(update_data=False)\n"
+)
+
+
+def patch_keep_paper_account(path=None):
+    """Stopping OctoBot keeps the paper account (optional: skipped if layout changed)."""
+    if path is None:
+        import importlib.util
+        spec = importlib.util.find_spec('octobot_trading')
+        if spec is None or not spec.submodule_search_locations:
+            return
+        path = Path(list(spec.submodule_search_locations)[0]) / \
+            'personal_data/portfolios/history/historical_portfolio_value_manager.py'
+    target = Path(path)
+    if not target.exists():
+        return
+    source = target.read_text(encoding='utf-8')
+    if KEEP_MARKER in source:
+        return
+    if source.count(KEEP_ANCHOR) != 1:
+        print('ASTRA: portfolio history layout changed; keep paper account patch skipped')
+        return
+    updated = source.replace(KEEP_ANCHOR, KEEP_CODE)
+    compile(updated, str(target), 'exec')
+    target.write_text(updated, encoding='utf-8')
+    print('ASTRA: applied keep paper account patch (stopping OctoBot no longer resets the paper account)')
+
+
 def patch(root):
     target = Path(root) / 'tentacles/Services/Services_bases/gpt_service/gpt.py'
     if not target.exists():
@@ -74,6 +146,8 @@ def patch(root):
         return
     sync_installation_context(root)
     patch_paper_fees(root)
+    patch_backup_stop(root)
+    patch_keep_paper_account()
     action = Path(root) / 'tentacles/Automation/actions/sell_all_currencies_action/sell_all_currencies.py'
     if action.exists():
         action_source = action.read_text(encoding='utf-8')
