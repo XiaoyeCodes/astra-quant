@@ -106,6 +106,15 @@ async def strategy_stoploss(request: Request) -> JSONResponse:
     return await _desk_call(apply())
 
 
+async def strategy_handover(request: Request) -> JSONResponse:
+    body = await _json_body(request)
+
+    async def apply() -> str:
+        cockpit.desk.set_handover(str(body.get("policy", "")))
+        return "已保存"
+    return await _desk_call(apply())
+
+
 async def strategy_ai_refresh(request: Request) -> JSONResponse:
     async def apply() -> str:
         cockpit.desk.refresh_ai()
@@ -160,6 +169,7 @@ routes = [
     Route("/api/strategy/scheme", strategy_scheme, methods=["POST"]),
     Route("/api/strategy/stoploss", strategy_stoploss, methods=["POST"]),
     Route("/api/strategy/ai-refresh", strategy_ai_refresh, methods=["POST"]),
+    Route("/api/strategy/handover", strategy_handover, methods=["POST"]),
     Route("/api/notify/test", notify_test, methods=["POST"]),
     WebSocketRoute("/ws", ws_endpoint),
     Mount("/", app=StaticFiles(directory=os.path.abspath(settings.web_dir), html=True), name="web"),

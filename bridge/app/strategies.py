@@ -47,7 +47,7 @@ META: dict[str, dict] = {
     "astra_ai_index": {"label": "AI 仓位", "family": "ai", "regimes": [],
                        "summary": "多个 AI 智能体综合指标、新闻、情绪决定 BTC/ETH/SOL/USDT 比例并调仓。"},
     "astra_idle": {"label": "观望", "family": "idle", "regimes": ["down", "volatile"],
-                   "summary": "不下新单，只看行情。下跌或剧烈波动时暂停；已有持币不会卖出。"},
+                   "summary": "不下新单，只看行情。按交接规则（默认）切换到观望时会先卖出全部持币，真正空仓。"},
     "astra_futures_dca": {"label": "合约分批补仓", "family": "dca", "regimes": [],
                           "summary": "USDT 永续分批补仓（类马丁）。"},
 }
@@ -90,6 +90,14 @@ def describe(pid: str, data: dict) -> dict:
         "simulated": simulated,
         "blocked": blocked,
     }
+
+
+def backtest_summary() -> dict | None:
+    """Two-year backtest headline numbers (tools/run_backtest.py --summary), shipped with the bridge."""
+    return _load(os.path.join(os.path.dirname(__file__), "backtest_summary.json")) or None
+
+
+BACKTEST = backtest_summary()
 
 
 def catalog() -> list[dict]:

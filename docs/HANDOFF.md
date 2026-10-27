@@ -66,3 +66,11 @@ docker compose up -d --no-deps bridge
 - 交付时状态：模拟盘，profile `astra_idle`，方案 `manual`，止损 10%，起点 997.15 USDT（OctoBot 在重建容器时把模拟资金从约 2200 重置为 1000，见报告第二节第 4 条）。无挂单。
 - 注意：bridge 现在只接受 `Host` 为 localhost/127.0.0.1/::1 的请求；写操作必须带 `Content-Type: application/json`。用 curl 调试写接口时要加这个头。
 - 待用户决定：是否给 OctoBot 网页设密码；配置通知渠道；实盘风控是否开放。
+
+## 2026-10-26 回测与持仓交接（分支 feat/backtest-handover，基于 feat/commercial-hardening）
+
+- 回测引擎 `bridge/app/backtest.py`，数据工具 `tools/fetch_history.py`、`tools/run_backtest.py`；报告 `docs/BACKTEST_2026-10-26.md`；驾驶舱读取 `bridge/app/backtest_summary.json`（用 `run_backtest.py --summary` 重新生成）。
+- 结论：两年里网格 +20%（回撤 13%），持有 BTC +16%（回撤 54%）；指标选策略 −34%~−64%，分批补仓 ASTRA 参数 −29%；高手续费下更差。
+- 交接规则 `handover` 默认 `flatten_on_idle`，与止损共用“清仓 + 核实”流程；模拟盘下会等 OctoBot 保存账户后再重启（OctoBot 防抖 5 秒保存，重启从文件恢复）。
+- 交付状态：模拟盘，`astra_idle`，只有 USDT 约 992，手动方案止损 10%。
+- Python 测试 85 项。

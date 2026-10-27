@@ -223,6 +223,22 @@ async def restart_bot() -> str:
     return str(res)
 
 
+def paper_snapshot_time() -> float | None:
+    """When OctoBot last saved the simulated portfolio to disk (epoch seconds), or None.
+
+    OctoBot restores the paper account from this file on restart and only writes it after a
+    5 s debounce: restarting right after trades loses them (seen in the handover test).
+    """
+    pattern = os.path.join(settings.octobot_user_dir, "data", "live", "*", "*", "portfolio_value_*trader-simulator.json")
+    latest = None
+    for path in glob.glob(pattern):
+        meta = (_load_json(path).get("metadata") or {}).get("1") or {}
+        stamp = meta.get("last_update_time")
+        if isinstance(stamp, (int, float)) and (latest is None or stamp > latest):
+            latest = stamp
+    return latest
+
+
 # ---------------------------------------------------------------- profile ---
 
 def _load_json(path: str) -> dict:

@@ -40,6 +40,7 @@
       try { msg('notifyMsg', await A.feed.notifyTest()); } catch (e) { msg('notifyMsg', e.message, true); }
     });
     $('slInput').addEventListener('input', () => { S.slFor = S.pick; });
+    $('handoverSel').addEventListener('change', (e) => act('schemeMsg', 'handover', { policy: e.target.value }));
     $('stList').addEventListener('click', (e) => {
       const go = e.target.closest('[data-go]');
       if (go) {
@@ -109,7 +110,8 @@
     });
     $('aiTradePick').hidden = S.pick !== 'ai_trade';
     document.querySelectorAll('#aiTradePick button').forEach((b) => b.classList.toggle('on', b.dataset.v === S.aiPick));
-    $('schemeDesc').textContent = desc(S.pick, st);
+    $('schemeDesc').innerHTML = A.esc(desc(S.pick, st)) + schemeWarning(S.pick, st);
+    renderHandover(st);
     if (S.slFor !== S.pick) $('slInput').value = st.stopLoss[S.pick] ?? 0;
     $('schemeGo').textContent = S.pick === st.scheme ? '重新启动方案（以当前资金为起点）' : `启动「${SCHEME_LABEL[S.pick]}」方案`;
     if (st.blocked && !st.switching) msg('schemeMsg', st.blocked, true);
@@ -117,6 +119,36 @@
     renderNotify(s.notify);
     renderRadar(s, st);
     renderList(s, st);
+  }
+
+  const pct = (v) => (v >= 0 ? '+' : '−') + Math.abs(v * 100).toFixed(1) + '%';
+  function btLine(bt, key) {
+    const r = bt && bt.results && bt.results[key];
+    if (!r) return '';
+    return `回测 ${bt.span.slice(0, 7)}–${bt.span.slice(-10, -3)}（含 ${(bt.fee * 100).toFixed(1)}% 手续费）：<b class="${r.ret >= 0 ? 'pos' : 'neg'}">${pct(r.ret)}</b> · 回撤 ${(r.dd * 100).toFixed(0)}%　｜　持有 BTC ${pct(bt.btc.ret)} · 回撤 ${(bt.btc.dd * 100).toFixed(0)}%`;
+  }
+
+  function schemeWarning(scheme, st) {
+    if (scheme !== 'rule_regime' && scheme !== 'ai_regime') return '';
+    const bt = st.backtest;
+    const r = bt && bt.results[`rule_regime:${st.handover}`];
+    const evidence = r ? `指标选策略两年回测（含手续费）<b class="neg">${pct(r.ret)}</b>、最大回撤 ${(r.dd * 100).toFixed(0)}%，同期持有 BTC ${pct(bt.btc.ret)}。` : '';
+    const ai = scheme === 'ai_regime' ? 'AI 判断无法回测，但同样会频繁切换。' : '';
+    return `<span class="warn-box">⚠ 实验功能：${evidence}${ai}亏损主要来自频繁切换和每次切换的建仓手续费，建议只在模拟盘试用。详见 docs/BACKTEST_2026-10-26.md。</span>`;
+  }
+
+  function renderHandover(st) {
+    const sel = $('handoverSel');
+    const opts = st.handoverOptions || {};
+    const key = Object.keys(opts).join('|');
+    if (sel.dataset.key !== key) {
+      sel.innerHTML = Object.entries(opts).map(([k, v]) => `<option value="${k}">${A.esc(v)}</option>`).join('');
+      sel.dataset.key = key;
+    }
+    if (document.activeElement !== sel) sel.value = st.handover;
+    $('handoverHint').textContent = st.handover === 'keep'
+      ? '注意：切到“观望”后仍然持有之前买入的币，下跌时会继续亏损。'
+      : '卖出前会核实只剩 USDT；卖不干净会提醒你，切换照常进行。';
   }
 
   function renderStatus(s, st) {
@@ -186,6 +218,12 @@
     $('aiRefresh').hidden = !ai.available;
   }
 
+  function btHtml(st, x) {
+    if (x.family === 'ai') return '<p class="st-bt">AI 策略依赖大模型的实时判断，无法用历史数据回测。</p>';
+    const line = btLine(st.backtest, x.id);
+    return line ? `<p class="st-bt">${line}</p>` : '';
+  }
+
   function renderList(s, st) {
     const v = s.regime || {}, aiv = (st.ai && st.ai.verdict) || {};
     const key = JSON.stringify([st.list.map((x) => [x.id, x.blocked]), st.current, v.prefer, aiv.strategy, S.sel, S.confirm, !!st.switching, st.blocked]);
@@ -209,7 +247,7 @@
       }
       return `<div class="st-card${open ? ' open' : ''}${x.blocked ? ' blocked' : ''}" data-id="${x.id}" role="button" tabindex="0">
         <div class="st-top"><b>${A.esc(x.label)}</b><span class="tag">${FAMILY_TAG[x.family] || x.family}</span>${badges.join('')}</div>
-        <p class="st-sum">${A.esc(x.summary)}</p><p class="st-fit">${fits}</p>${foot}</div>`;
+        <p class="st-sum">${A.esc(x.summary)}</p><p class="st-fit">${fits}</p>${btHtml(st, x)}${foot}</div>`;
     }).join('');
   }
 })();

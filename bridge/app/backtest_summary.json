@@ -1,0 +1,176 @@
+{
+ "span": "2024-11-03 ~ 2026-10-26",
+ "fee": 0.001,
+ "slippage": 0.0005,
+ "btc": {
+  "name": "持有 BTC（基准）",
+  "ret": 0.1621,
+  "dd": 0.5373,
+  "sharpe": 0.39,
+  "feeShare": 0.001
+ },
+ "results": {
+  "hold_btc": {
+   "name": "持有 BTC（基准）",
+   "ret": 0.1621,
+   "dd": 0.5373,
+   "sharpe": 0.39,
+   "feeShare": 0.001
+  },
+  "astra_idle": {
+   "name": "观望（全现金）",
+   "ret": 0.0,
+   "dd": 0.0,
+   "sharpe": 0.0,
+   "feeShare": 0.0
+  },
+  "astra_spot_grid": {
+   "name": "现货网格 8×0.5%（ASTRA 参数）",
+   "ret": 0.2023,
+   "dd": 0.1274,
+   "sharpe": 0.68,
+   "feeShare": 0.0919
+  },
+  "grid_wide": {
+   "name": "现货网格 10×0.75%（报告选项 A）",
+   "ret": 0.2,
+   "dd": 0.1239,
+   "sharpe": 0.7,
+   "feeShare": 0.0579
+  },
+  "astra_trailing_grid": {
+   "name": "移动网格 8×0.5%",
+   "ret": -0.0657,
+   "dd": 0.5254,
+   "sharpe": 0.12,
+   "feeShare": 0.1664
+  },
+  "astra_spot_dca": {
+   "name": "分批补仓（ASTRA 参数）",
+   "ret": -0.2922,
+   "dd": 0.4287,
+   "sharpe": -0.67,
+   "feeShare": 0.212
+  },
+  "dca_conservative": {
+   "name": "分批补仓（12h、2.5%、最多 50%）",
+   "ret": -0.1156,
+   "dd": 0.2033,
+   "sharpe": -0.54,
+   "feeShare": 0.0955
+  },
+  "astra_trend": {
+   "name": "趋势跟随 EMA50/200",
+   "ret": -0.128,
+   "dd": 0.2907,
+   "sharpe": -0.66,
+   "feeShare": 0.0669
+  },
+  "astra_index": {
+   "name": "指数持仓 BTC/ETH/SOL 50/30/20",
+   "ret": 0.0213,
+   "dd": 0.6214,
+   "sharpe": 0.29,
+   "feeShare": 0.0021
+  },
+  "rule_regime:keep": {
+   "name": "指标选策略·交接 keep（原行为）",
+   "ret": -0.3424,
+   "dd": 0.5198,
+   "sharpe": -0.62,
+   "feeShare": 0.4874
+  },
+  "rule_regime:flatten_on_idle": {
+   "name": "指标选策略·交接 flatten_on_idle",
+   "ret": -0.5005,
+   "dd": 0.5552,
+   "sharpe": -1.81,
+   "feeShare": 0.4887
+  },
+  "rule_regime:flatten": {
+   "name": "指标选策略·交接 flatten",
+   "ret": -0.6385,
+   "dd": 0.6748,
+   "sharpe": -2.69,
+   "feeShare": 0.5682
+  }
+ },
+ "segments": [
+  {
+   "label": "第1段",
+   "span": "2024-11-03 ~ 2025-04-27",
+   "btc": 0.3726,
+   "results": {
+    "hold_btc": 0.3726,
+    "astra_idle": 0.0,
+    "astra_spot_grid": 0.0186,
+    "grid_wide": 0.0259,
+    "astra_trailing_grid": 0.122,
+    "astra_spot_dca": -0.0989,
+    "dca_conservative": -0.0775,
+    "astra_trend": -0.0511,
+    "astra_index": 0.0773,
+    "rule_regime:keep": 0.0766,
+    "rule_regime:flatten_on_idle": -0.1703,
+    "rule_regime:flatten": -0.2309
+   }
+  },
+  {
+   "label": "第2段",
+   "span": "2025-04-27 ~ 2025-10-26",
+   "btc": 0.2067,
+   "results": {
+    "hold_btc": 0.2067,
+    "astra_idle": 0.0,
+    "astra_spot_grid": 0.0201,
+    "grid_wide": 0.0289,
+    "astra_trailing_grid": 0.0881,
+    "astra_spot_dca": -0.0055,
+    "dca_conservative": 0.0059,
+    "astra_trend": -0.0318,
+    "astra_index": 0.5359,
+    "rule_regime:keep": -0.0455,
+    "rule_regime:flatten_on_idle": -0.1094,
+    "rule_regime:flatten": -0.1854
+   }
+  },
+  {
+   "label": "第3段",
+   "span": "2025-10-26 ~ 2026-04-27",
+   "btc": -0.3025,
+   "results": {
+    "hold_btc": -0.3025,
+    "astra_idle": 0.0,
+    "astra_spot_grid": -0.2862,
+    "grid_wide": -0.2784,
+    "astra_trailing_grid": -0.2862,
+    "astra_spot_dca": -0.1835,
+    "dca_conservative": -0.1184,
+    "astra_trend": -0.1528,
+    "astra_index": -0.3916,
+    "rule_regime:keep": -0.2899,
+    "rule_regime:flatten_on_idle": -0.1874,
+    "rule_regime:flatten": -0.2514
+   }
+  },
+  {
+   "label": "第4段",
+   "span": "2026-04-27 ~ 2026-10-26",
+   "btc": 0.0132,
+   "results": {
+    "hold_btc": 0.0132,
+    "astra_idle": 0.0,
+    "astra_spot_grid": 0.1002,
+    "grid_wide": 0.0855,
+    "astra_trailing_grid": 0.0969,
+    "astra_spot_dca": -0.0341,
+    "dca_conservative": -0.0285,
+    "astra_trend": 0.1138,
+    "astra_index": 0.0292,
+    "rule_regime:keep": -0.0923,
+    "rule_regime:flatten_on_idle": -0.1623,
+    "rule_regime:flatten": -0.2242
+   }
+  }
+ ]
+}
