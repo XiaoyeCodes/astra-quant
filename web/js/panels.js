@@ -183,7 +183,7 @@
     renderStratBar(s, p, sym, px);
     const mode = p.label || (p.tradingMode || '').replace(/TradingMode/g, '').replace(/\s*·\s*/g, ' + ') || '未连接策略';
     $('stratMeta').textContent = `${mode} · ${p.exchangeType === 'future' ? '合约' : '现货'}`;
-    renderSchemeLine(s.strategy);
+    renderSchemeLine(s.strategy, s.equity && s.equity.value);
   }
 
   // what the bar under the risk card shows depends on the kind of strategy running
@@ -238,18 +238,19 @@
   }
 
   const SCHEME_SHORT = { manual: '手动', ai_trade: 'AI 交易', ai_regime: 'AI 选策略', rule_regime: '指标选策略' };
-  function renderSchemeLine(st) {
+  const RULE_SHORT = { base: '止损', trail: '回撤止损', daily: '日亏上限' };
+  function renderSchemeLine(st, equity) {
     const el = $('rkScheme');
     if (!st) { el.textContent = '演示模式'; el.className = 'rk-scheme num'; return; }
-    const pct = st.stopLoss[st.scheme] || 0;
     let txt = `方案 ${SCHEME_SHORT[st.scheme] || st.scheme}`, cls = '';
-    if (st.stopped) { txt += ' · 已触发止损，交易已停止'; cls = 'neg'; }
+    if (st.stopped) { txt += ` · 已触发${st.stopped.ruleLabel || '止损'}，交易已停止`; cls = 'neg'; }
     else if (st.stopping) { txt += ' · 正在执行止损'; cls = 'neg'; }
-    else if (pct && st.stopLine) {
-      const room = st.drawdown === null || st.drawdown === undefined ? null : pct - st.drawdown;
-      txt += ` · 止损线 ${A.fmt(st.stopLine, 0)}${room !== null ? `（距 ${room.toFixed(1)}%）` : ''}`;
-      if (room !== null && room < pct * 0.3) cls = 'neg';
-    } else txt += ' · 未设止损';
+    else if (st.stopLine) {
+      // the binding line: whichever rule (max loss, trailing, daily) would fire first
+      const room = equity ? (equity - st.stopLine) / equity * 100 : null;
+      txt += ` · ${RULE_SHORT[st.bindingRule] || '止损'}线 ${A.fmt(st.stopLine, 0)}${room !== null ? `（距 ${room.toFixed(1)}%）` : ''}`;
+      if (room !== null && room < 2) cls = 'neg';
+    } else { txt += ' · 未设止损'; cls = 'neg'; }
     if (st.switching) txt += ` · 切换到 ${st.switching.label}…`;
     el.textContent = txt;
     el.className = 'rk-scheme num ' + cls;

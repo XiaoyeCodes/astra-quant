@@ -8,15 +8,17 @@ import contextlib
 import json
 import logging
 import os
+import time
 
 from starlette.applications import Starlette
 from starlette.middleware import Middleware
 from starlette.requests import Request
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, Response
 from starlette.routing import Mount, Route, WebSocketRoute
 from starlette.staticfiles import StaticFiles
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
+from . import health as healthcheck
 from .config import settings
 from .octobot_client import OctoBotError
 from .security import LocalOnlyGuard
@@ -34,6 +36,18 @@ async def state_endpoint(request: Request) -> JSONResponse:
 
 async def health(request: Request) -> JSONResponse:
     return JSONResponse({"ok": True})
+
+
+async def health_report(request: Request) -> JSONResponse:
+    return JSONResponse(healthcheck.report(cockpit))
+
+
+async def diagnostics(request: Request) -> JSONResponse:
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    body = healthcheck.redact(json.dumps(healthcheck.diagnostics(cockpit), ensure_ascii=False, default=str))
+    return Response(body, media_type="application/json", headers={
+        "Content-Disposition": f'attachment; filename="astra-diagnostics-{stamp}.json"',
+        "Cache-Control": "no-store"})
 
 
 async def focus_endpoint(request: Request) -> JSONResponse:
@@ -89,12 +103,28 @@ async def strategy_select(request: Request) -> JSONResponse:
 
 async def strategy_scheme(request: Request) -> JSONResponse:
     body = await _json_body(request)
-    stop = body.get("stopLoss")
+    def value(key):
+        v = body.get(key)
+        return v if v not in (None, "") else None
     return await _desk_call(cockpit.desk.start_scheme(
         str(body.get("scheme", "")),
         ai_profile=body.get("aiProfile"),
-        stop_pct=stop if stop not in (None, "") else None,
+        stop_pct=value("stopLoss"), trail_pct=value("trail"), daily_pct=value("dailyLoss"),
     ))
+
+
+async def strategy_risk(request: Request) -> JSONResponse:
+    body = await _json_body(request)
+
+    def value(key):
+        v = body.get(key)
+        return v if v not in (None, "") else None
+
+    async def apply() -> str:
+        cockpit.desk.set_risk(str(body.get("scheme", "")), stop=value("stopLoss"),
+                              trail=value("trail"), daily=value("dailyLoss"))
+        return "风控参数已保存"
+    return await _desk_call(apply())
 
 
 async def strategy_stoploss(request: Request) -> JSONResponse:
@@ -162,12 +192,15 @@ async def lifespan(app):
 routes = [
     Route("/api/health", health),
     Route("/api/state", state_endpoint),
+    Route("/api/health/report", health_report),
+    Route("/api/diagnostics", diagnostics),
     Route("/api/focus", focus_endpoint, methods=["POST"]),
     Route("/api/control/cancel-all", cancel_all, methods=["POST"]),
     Route("/api/control/stop-bot", stop_bot, methods=["POST"]),
     Route("/api/strategy/select", strategy_select, methods=["POST"]),
     Route("/api/strategy/scheme", strategy_scheme, methods=["POST"]),
     Route("/api/strategy/stoploss", strategy_stoploss, methods=["POST"]),
+    Route("/api/strategy/risk", strategy_risk, methods=["POST"]),
     Route("/api/strategy/ai-refresh", strategy_ai_refresh, methods=["POST"]),
     Route("/api/strategy/handover", strategy_handover, methods=["POST"]),
     Route("/api/notify/test", notify_test, methods=["POST"]),

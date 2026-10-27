@@ -18,6 +18,7 @@ import json
 import logging
 import os
 import time
+from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING
 
 from . import llm
@@ -41,10 +42,11 @@ AI_TRADE_PROFILES = ("astra_ai_signal", "astra_ai_index")
 AI_CONFIRM = 2  # consecutive identical AI verdicts before an automatic switch
 STOP_ACTIONS = ["CancelOpenOrders", "SellAllCurrencies", "StopStrategiesAndPauseTrader"]
 CLEAR_ACTIONS = ["CancelOpenOrders", "SellAllCurrencies"]  # repeated each second until verified
-PAUSE_ACTIONS = ["StopStrategiesAndPauseTrader"]
 DUST_VALUE = 1.0  # holdings worth less than this (in the reference market) count as sold
 CLEAR_TIMEOUT = 60  # seconds to wait for orders cancelled and holdings sold
 IDLE_PROFILE = "astra_idle"
+RISK_TZ = timezone(timedelta(hours=8))  # trading day for the daily loss limit (Beijing time)
+RULE_LABELS = {"base": "最大止损", "trail": "回撤止损", "daily": "单日亏损上限"}
 # What happens to coins already held when the running strategy changes
 HANDOVER = {
     "flatten_on_idle": "切到观望时卖出全部持币，切到其他策略时保留",
@@ -64,6 +66,10 @@ def now_ms() -> int:
 
 def backup_pct(stop_pct: float) -> float:
     return round(abs(stop_pct) + max(1.0, abs(stop_pct) * 0.5), 2)
+
+
+def trading_day(ts: float | None = None) -> str:
+    return datetime.fromtimestamp(ts if ts is not None else time.time(), RISK_TZ).strftime("%Y-%m-%d")
 
 
 def automation_config(stop_pct: float | None = None, immediate: bool = False,
@@ -101,6 +107,11 @@ class StrategyDesk:
             "scheme": "manual",
             "aiTradeProfile": AI_TRADE_PROFILES[0],
             "stopLoss": {"manual": 0, "ai_trade": 10, "ai_regime": 10, "rule_regime": 10},
+            # from the highest equity since the scheme started / from the day's first equity (0 = off)
+            "trail": {"manual": 0, "ai_trade": 0, "ai_regime": 0, "rule_regime": 0},
+            "dailyLoss": {"manual": 0, "ai_trade": 0, "ai_regime": 0, "rule_regime": 0},
+            "peak": None,       # {"equity", "ts"}: highest settled equity since the scheme started
+            "day": None,        # {"date", "equity"}: first settled equity of the trading day
             "baseline": None,   # {"equity", "ts", "scheme"}
             "stopped": None,    # {"ts", "equity", "baseline", "pct", "scheme"}
             "lastSwitch": None, "lastSwitchTo": None,
@@ -132,7 +143,10 @@ class StrategyDesk:
         if data.pop("auto", False) and "scheme" not in data:
             data["scheme"] = "rule_regime"  # settings saved by the first radar version
         stop = dict(self.cfg["stopLoss"], **data.pop("stopLoss", {}))
+        trail = dict(self.cfg["trail"], **data.pop("trail", {}))
+        daily = dict(self.cfg["dailyLoss"], **data.pop("dailyLoss", {}))
         self.cfg.update(data)
+        self.cfg["trail"], self.cfg["dailyLoss"] = trail, daily
         self.cfg["stopLoss"] = stop
 
     def save(self) -> None:
@@ -326,11 +340,14 @@ class StrategyDesk:
     def _arm(self, scheme: str) -> None:
         equity = self.c.oct_equity_live
         self.cfg.update(scheme=scheme, stopped=None,
-                        baseline={"equity": equity, "ts": now_ms(), "scheme": scheme} if equity else None)
+                        baseline={"equity": equity, "ts": now_ms(), "scheme": scheme} if equity else None,
+                        peak={"equity": equity, "ts": now_ms()} if equity else None,
+                        day={"date": trading_day(), "equity": equity} if equity else None)
         self.save()
         self._automation_key = None  # push the safety net again
 
-    async def start_scheme(self, scheme: str, ai_profile: str | None = None, stop_pct=None) -> str:
+    async def start_scheme(self, scheme: str, ai_profile: str | None = None, stop_pct=None,
+                           trail_pct=None, daily_pct=None) -> str:
         if scheme not in SCHEMES:
             raise ValueError("没有这个方案")
         reason = self.block_reason()
@@ -346,14 +363,16 @@ class StrategyDesk:
                 raise ValueError(target.get("blocked") if target else "没有这个 AI 策略")
         if scheme in ("ai_trade", "ai_regime") and not llm.available():
             raise ValueError("未配置 LLM_API_KEY：请在 .env 中填写 DeepSeek 的 Key 后重新运行 start.bat")
-        if stop_pct is not None:
-            self.set_stop_loss(scheme, stop_pct)
+        if stop_pct is not None or trail_pct is not None or daily_pct is not None:
+            self.set_risk(scheme, stop=stop_pct, trail=trail_pct, daily=daily_pct)
         if ai_profile is not None:
             self.cfg["aiTradeProfile"] = ai_profile
         self._arm(scheme)
-        pct = self.cfg["stopLoss"].get(scheme, 0)
-        self.c.add_log("risk", f"启动方案「{SCHEMES[scheme]}」，最大止损 {pct:g}%" if pct else
-                       f"启动方案「{SCHEMES[scheme]}」，未设置止损")
+        rules = [(RULE_LABELS["base"], self.cfg["stopLoss"].get(scheme, 0)),
+                 (RULE_LABELS["trail"], self.cfg["trail"].get(scheme, 0)),
+                 (RULE_LABELS["daily"], self.cfg["dailyLoss"].get(scheme, 0))]
+        active = "，".join(f"{name} {pct:g}%" for name, pct in rules if pct) or "未设置任何止损"
+        self.c.add_log("risk", f"启动方案「{SCHEMES[scheme]}」：{active}")
         if scheme == "ai_trade":
             target = self.cfg["aiTradeProfile"]
             if self.c.profile.get("id") != target:
@@ -365,18 +384,36 @@ class StrategyDesk:
             return "方案已启动，AI 正在分析行情（约 10–30 秒），之后自动选择策略"
         return "方案已启动"
 
+    @staticmethod
+    def _pct(value, label: str, top: float) -> float:
+        if isinstance(value, bool):
+            raise ValueError(f"{label}需要是数字")
+        try:
+            pct = float(value)
+        except (TypeError, ValueError):
+            raise ValueError(f"{label}需要是数字") from None
+        if not 0 <= pct <= top:
+            raise ValueError(f"{label}应在 0–{top:g}% 之间（0 表示关闭）")
+        return round(pct, 2)
+
     def set_stop_loss(self, scheme: str, pct: float) -> None:
+        self.set_risk(scheme, stop=pct)
+
+    def set_risk(self, scheme: str, stop=None, trail=None, daily=None) -> None:
+        """Validate everything first so a bad field never half-applies the others."""
         if scheme not in SCHEMES:
             raise ValueError("没有这个方案")
-        if isinstance(pct, bool):
-            raise ValueError("止损比例需要是数字")
-        try:
-            pct = float(pct)
-        except (TypeError, ValueError):
-            raise ValueError("止损比例需要是数字") from None
-        if not 0 <= pct <= 90:
-            raise ValueError("止损比例应在 0–90% 之间（0 表示不止损）")
-        self.cfg["stopLoss"][scheme] = round(pct, 2)
+        changes = {}
+        if stop is not None:
+            changes["stopLoss"] = self._pct(stop, "止损比例", 90)
+        if trail is not None:
+            changes["trail"] = self._pct(trail, "回撤止损比例", 90)
+        if daily is not None:
+            changes["dailyLoss"] = self._pct(daily, "单日亏损上限", 50)
+        if not changes:
+            raise ValueError("没有要保存的风控参数")
+        for key, value in changes.items():
+            self.cfg[key][scheme] = value
         self.save()
         self._automation_key = None
 
@@ -451,11 +488,45 @@ class StrategyDesk:
             self.c.add_log("warn", f"自动切换失败：{err}")
 
     # ---------------------------------------------------------- stop loss ---
+    def risk_lines(self) -> dict[str, float | None]:
+        """Equity level of each active rule for the running scheme (None when off or unknown)."""
+        scheme = self.cfg["scheme"]
+
+        def line(anchor: dict | None, pct: float) -> float | None:
+            if not anchor or not anchor.get("equity") or not pct:
+                return None
+            return anchor["equity"] * (1 - pct / 100)
+        day = self.cfg.get("day")
+        today = day if day and day.get("date") == trading_day() else None
+        return {"base": line(self.cfg.get("baseline"), self.cfg["stopLoss"].get(scheme, 0)),
+                "trail": line(self.cfg.get("peak"), self.cfg["trail"].get(scheme, 0)),
+                "daily": line(today, self.cfg["dailyLoss"].get(scheme, 0))}
+
+    def binding_rule(self) -> tuple[str | None, float | None]:
+        """The rule whose line is highest, i.e. the one that fires first."""
+        active = [(v, k) for k, v in self.risk_lines().items() if v is not None]
+        if not active:
+            return None, None
+        value, rule = max(active)
+        return rule, value
+
     def stop_line(self) -> float | None:
-        base, pct = self.cfg.get("baseline"), self.cfg["stopLoss"].get(self.cfg["scheme"], 0)
-        if not base or not base.get("equity") or not pct:
-            return None
-        return base["equity"] * (1 - pct / 100)
+        return self.binding_rule()[1]
+
+    def _track_anchors(self, live: float) -> None:
+        """Keep the peak and the day's first equity up to date (settled values only)."""
+        changed = False
+        peak = self.cfg.get("peak")
+        if self.cfg.get("baseline") and (not peak or live > peak.get("equity", 0)):
+            self.cfg["peak"] = {"equity": live, "ts": now_ms()}
+            changed = peak is None or live > peak["equity"] * 1.001  # do not rewrite the file on every tick
+        today = trading_day()
+        day = self.cfg.get("day")
+        if not day or day.get("date") != today:
+            self.cfg["day"] = {"date": today, "equity": live}
+            changed = True
+        if changed:
+            self.save()
 
     async def on_octobot_sync(self, fresh_connection: bool) -> None:
         """Called after each successful OctoBot poll."""
@@ -470,13 +541,15 @@ class StrategyDesk:
                 self._gap_check = False
                 self._check_paper_reset(self._equity_before_gap, live)
             self._equity_before_gap = live
+            if c._mode() == "paper":
+                self._track_anchors(live)
             if now_ms() - (self.cfg.get("lastEquity") or {}).get("ts", 0) >= 60 * 1000:
                 self.cfg["lastEquity"] = {"equity": live, "ts": now_ms()}
                 self.save()
         if self.cfg["baseline"] is None and live and c._mode() == "paper" and not settling:
             self.cfg["baseline"] = {"equity": live, "ts": now_ms(), "scheme": self.cfg["scheme"]}
             self.save()
-        line = self.stop_line()
+        rule, line = self.binding_rule()
         breach = bool(line and live and live <= line)
         # right after a (re)start OctoBot may value the portfolio before every price is known:
         # ignore the first minute and require the breach on several polls in a row
@@ -484,7 +557,7 @@ class StrategyDesk:
         armed = bool(line) and not self.cfg.get("stopped") and not self._stopping and c._mode() == "paper"
         if self._breaches >= STOP_CONFIRM_POLLS and armed:
             self._stopping = True  # set before the task starts so the next poll does not fire twice
-            self._stop_task = asyncio.create_task(self.execute_stop())
+            self._stop_task = asyncio.create_task(self.execute_stop(rule=rule))
             return
         # a paused OctoBot reports no portfolio and no orders: its backup stop-loss fired first
         blind = armed and not settling and not live and not c.oct_orders and not self.switching
@@ -507,6 +580,8 @@ class StrategyDesk:
             return
         old = base.get("equity")
         self.cfg["baseline"] = {"equity": after, "ts": now_ms(), "scheme": self.cfg["scheme"], "rebased": True}
+        self.cfg["peak"] = {"equity": after, "ts": now_ms()}
+        self.cfg["day"] = {"date": trading_day(), "equity": after}
         self.save()
         self._breaches = 0
         self.c.add_log("risk", f"OctoBot 重启前后模拟资金从 {before:.2f} 变为 {after:.2f}（{change:+.1%}），离线期间不会交易，"
@@ -593,31 +668,49 @@ class StrategyDesk:
             self._automation_key = None  # the safety net is pushed again on the next sync
         return status
 
-    async def execute_stop(self, reason: str | None = None) -> None:
-        """Cancel, sell everything, verify it really happened, then pause and park on 观望."""
+    def _stop_message(self, rule: str, equity: float) -> tuple[str, float, float | None]:
+        """(log text, limit %, loss % from that rule's anchor)."""
+        scheme = self.cfg["scheme"]
+        anchor, limit, what = {
+            "base": (self.cfg.get("baseline"), self.cfg["stopLoss"].get(scheme, 0), "方案启动时"),
+            "trail": (self.cfg.get("peak"), self.cfg["trail"].get(scheme, 0), "运行期间最高"),
+            "daily": (self.cfg.get("day"), self.cfg["dailyLoss"].get(scheme, 0), "今日起点"),
+        }[rule]
+        ref = (anchor or {}).get("equity")
+        loss = (1 - equity / ref) * 100 if equity and ref else None
+        text = (f"触发{RULE_LABELS[rule]}：权益 {equity:.2f}，{what} {ref or 0:.2f}，"
+                f"{'下跌' if rule != 'trail' else '回撤'} {loss or 0:.2f}%（上限 {limit:g}%）。"
+                "正在撤单、卖出全部持币并停止交易")
+        return text, limit, loss
+
+    async def execute_stop(self, reason: str | None = None, rule: str = "base") -> None:
+        """Cancel, sell everything, verify it really happened, then park on 观望 and restart (no pause)."""
         c = self.c
         self._stopping = True
         base = self.cfg.get("baseline") or {}
-        pct = self.cfg["stopLoss"].get(self.cfg["scheme"], 0)
         quote = c.profile.get("referenceMarket", "USDT")
         equity = c.oct_equity_live or c.oct_equity
-        loss = (1 - equity / base["equity"]) * 100 if equity and base.get("equity") else None
-        c.add_log("risk", reason or f"触发止损：权益 {equity:.2f} 低于止损线（方案启动时 {base.get('equity', 0):.2f}，"
-                                    f"最大亏损 {pct:g}%，当前 −{loss:.2f}%）。正在撤单、卖出全部持币并停止交易")
+        text, pct, loss = self._stop_message(rule, equity)
+        c.add_log("risk", reason or text)
         self.cfg["stopped"] = {"ts": now_ms(), "equity": equity, "baseline": base.get("equity"),
-                               "pct": pct, "loss": loss, "scheme": self.cfg["scheme"], "verified": None}
+                               "pct": pct, "loss": loss, "scheme": self.cfg["scheme"], "verified": None,
+                               "rule": rule, "ruleLabel": RULE_LABELS[rule]}
         self.save()
         status = {"known": False, "orders": None, "leftovers": {}}
         try:
-            # 1. cancel and sell every second (also undoes orders a strategy re-creates)
+            # 1. cancel and sell every second (also undoes orders a strategy re-creates), verified
+            sold_at = time.time()
             status = await self._clear_positions(quote)
-            # 2. pause trading whatever the outcome, so a failed sale cannot keep trading
-            await octo.save_automations(automation_config(immediate=True, actions=PAUSE_ACTIONS))
-            await octo.start_automations()
-            await asyncio.sleep(3)
-            await octo.save_automations(automation_config())
-            await octo.start_automations()
-            await octo.select_profile(IDLE_PROFILE)  # a later restart must not resume trading
+            # 2. park on 观望 with a restart instead of pausing: a paused OctoBot saves its paper
+            #    account without an ending portfolio and resets it to the starting funds on the next
+            #    start. 观望 places no orders, so trading stops the same way.
+            if c._mode() == "paper":
+                await self._wait_paper_saved(sold_at)
+            octo_since = c.link_octobot.get("since")
+            await octo.select_profile(IDLE_PROFILE)
+            await octo.restart_bot()
+            self.switching = {"from": c.profile.get("id"), "to": IDLE_PROFILE, "label": "观望", "by": "stop",
+                              "since": now_ms(), "octoSince": octo_since}
             self._automation_key = None
         except octo.OctoBotError as err:
             self.cfg["stopped"].update(verified=False, problem=f"止损执行出错：{err}")
@@ -636,10 +729,10 @@ class StrategyDesk:
         self.cfg["stopped"].update(verified=verified, problem=problem, finalEquity=status.get("equity"))
         self.save()
         if verified:
-            c.add_log("risk", f"止损完成并已核实：挂单已撤销，只剩 {quote}（{status['equity']:.2f}），交易已暂停；"
-                              "OctoBot 下次启动将使用「观望」")
+            c.add_log("risk", f"止损完成并已核实：挂单已撤销，只剩 {quote}（{status['equity']:.2f}）；"
+                              "OctoBot 正在切换到「观望」并重启，不会再下单")
         else:
-            c.add_log("risk", f"止损未完全执行：{problem}。交易已暂停，请立即到 OctoBot 检查并手动处理")
+            c.add_log("risk", f"止损未完全执行：{problem}。OctoBot 正在切换到「观望」，请立即到 OctoBot 检查并手动处理")
         self._stopping = False
 
     # ----------------------------------------------------------- snapshot ---
@@ -657,6 +750,12 @@ class StrategyDesk:
             "aiTradeProfile": cfg["aiTradeProfile"],
             "aiTradeProfiles": list(AI_TRADE_PROFILES),
             "stopLoss": cfg["stopLoss"],
+            "trail": cfg["trail"],
+            "dailyLoss": cfg["dailyLoss"],
+            "peak": cfg.get("peak"),
+            "day": cfg.get("day") if (cfg.get("day") or {}).get("date") == trading_day() else None,
+            "lines": self.risk_lines(),
+            "bindingRule": self.binding_rule()[0],
             "handover": cfg.get("handover", "flatten_on_idle"),
             "handoverOptions": HANDOVER,
             "backtest": strategies.BACKTEST,

@@ -154,6 +154,7 @@ class Cockpit:
         self._first_octo_sync = True
         self._last_octo_mode: str | None = None
         self._octo_lost_at: int | None = None
+        self.last_octo_sync: int | None = None  # last complete OctoBot poll (health check)
         self._last_equity_sample = 0.0
         self._last_persist = 0.0
         self._load_history()
@@ -337,6 +338,7 @@ class Cockpit:
                 if fresh:
                     self.add_log("ok", f"OctoBot 已连接 {self.link_octobot.get('version') or ''}".strip())
                 self.link_octobot.update(ok=True, error=None)
+                self.last_octo_sync = now_ms()
                 await self.desk.on_octobot_sync(fresh)
             except asyncio.CancelledError:
                 raise

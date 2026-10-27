@@ -124,6 +124,12 @@
     return data;
   };
 
+  feed.health = async function () {
+    const res = await fetch('/api/health/report', { cache: 'no-store' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.json();
+  };
+
   feed.notifyTest = async function () {
     if (feed.usingDemo) throw new Error('演示模式下不能发送通知');
     const res = await fetch('/api/notify/test', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });

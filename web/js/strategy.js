@@ -31,15 +31,16 @@
       S.aiPick = b.dataset.v; if (S.last) render(S.last);
     }));
     $('schemeGo').addEventListener('click', () => act('schemeMsg', 'scheme', {
-      scheme: S.pick, aiProfile: S.pick === 'ai_trade' ? S.aiPick : undefined, stopLoss: $('slInput').value,
+      scheme: S.pick, aiProfile: S.pick === 'ai_trade' ? S.aiPick : undefined, ...riskInputs(),
     }));
-    $('slSave').addEventListener('click', () => act('schemeMsg', 'stoploss', { scheme: S.pick, pct: $('slInput').value }));
+    $('slSave').addEventListener('click', () => act('schemeMsg', 'risk', { scheme: S.pick, ...riskInputs() }));
     $('aiRefresh').addEventListener('click', () => act('schemeMsg', 'ai-refresh', {}));
     $('notifyTest').addEventListener('click', async () => {
       msg('notifyMsg', '发送中…');
       try { msg('notifyMsg', await A.feed.notifyTest()); } catch (e) { msg('notifyMsg', e.message, true); }
     });
-    $('slInput').addEventListener('input', () => { S.slFor = S.pick; });
+    ['slInput', 'trailInput', 'dailyInput'].forEach((id) => $(id).addEventListener('input', () => { S.slFor = S.pick; }));
+    $('healthRun').addEventListener('click', () => { S.healthAt = 0; checkHealth(); });
     $('handoverSel').addEventListener('change', (e) => act('schemeMsg', 'handover', { policy: e.target.value }));
     $('stList').addEventListener('click', (e) => {
       const go = e.target.closest('[data-go]');
@@ -91,7 +92,7 @@
   function render(s) {
     const st = s.strategy;
     const off = !st;
-    ['schemeGo', 'slSave', 'aiRefresh', 'slInput'].forEach((id) => { $(id).disabled = off || !!(st && st.stopping); });
+    ['schemeGo', 'slSave', 'aiRefresh', 'slInput', 'trailInput', 'dailyInput'].forEach((id) => { $(id).disabled = off || !!(st && st.stopping); });
     document.querySelectorAll('#schemeList button, #aiTradePick button').forEach((b) => { b.disabled = off; });
     if (off) {
       $('schemeDesc').textContent = '演示模式：连接 OctoBot 后可以选择方案、设置止损和切换策略。';
@@ -112,11 +113,16 @@
     document.querySelectorAll('#aiTradePick button').forEach((b) => b.classList.toggle('on', b.dataset.v === S.aiPick));
     $('schemeDesc').innerHTML = A.esc(desc(S.pick, st)) + schemeWarning(S.pick, st);
     renderHandover(st);
-    if (S.slFor !== S.pick) $('slInput').value = st.stopLoss[S.pick] ?? 0;
+    if (S.slFor !== S.pick) {
+      $('slInput').value = st.stopLoss[S.pick] ?? 0;
+      $('trailInput').value = (st.trail || {})[S.pick] ?? 0;
+      $('dailyInput').value = (st.dailyLoss || {})[S.pick] ?? 0;
+    }
     $('schemeGo').textContent = S.pick === st.scheme ? '重新启动方案（以当前资金为起点）' : `启动「${SCHEME_LABEL[S.pick]}」方案`;
     if (st.blocked && !st.switching) msg('schemeMsg', st.blocked, true);
     renderStatus(s, st);
     renderNotify(s.notify);
+    checkHealth();
     renderRadar(s, st);
     renderList(s, st);
   }
@@ -151,33 +157,63 @@
       : '卖出前会核实只剩 USDT；卖不干净会提醒你，切换照常进行。';
   }
 
+  function riskInputs() {
+    return { stopLoss: $('slInput').value, trail: $('trailInput').value, dailyLoss: $('dailyInput').value };
+  }
+
+  const RULE = { base: ['最大止损', 'stopLoss', '起点'], trail: ['回撤止损', 'trail', '最高'], daily: ['单日亏损', 'dailyLoss', '今日起点'] };
   function renderStatus(s, st) {
     const rows = [];
     const base = st.baseline;
-    const pct = st.stopLoss[st.scheme] || 0;
+    const eq = s.equity && s.equity.value;
     rows.push(`<div><span>运行中</span><b>${A.esc(SCHEME_LABEL[st.scheme])} · ${A.esc(labelOf(st, st.current))}</b></div>`);
     if (base && base.equity) rows.push(`<div><span>起点资金</span><b>${A.fmt(base.equity, 2)} USDT · ${timeOf(base.ts)}</b></div>`);
-    if (pct && st.stopLine) {
-      const dd = st.drawdown;
-      const room = dd === null || dd === undefined ? null : pct - dd;
-      rows.push(`<div><span>止损线</span><b>${A.fmt(st.stopLine, 2)}（−${pct}%）</b></div>`);
-      rows.push(`<div><span>当前盈亏</span><b class="${dd > 0 ? 'neg' : 'pos'}">${dd === null || dd === undefined ? '—' : A.fmtPct(-dd)}${room !== null ? ` · 距止损 ${room.toFixed(2)}%` : ''}</b></div>`);
-    } else rows.push('<div><span>止损</span><b>未设置</b></div>');
+    if (st.peak && st.peak.equity) rows.push(`<div><span>运行期间最高</span><b>${A.fmt(st.peak.equity, 2)}</b></div>`);
+    const lines = st.lines || {};
+    let any = false;
+    Object.entries(RULE).forEach(([rule, [label, key]]) => {
+      const pct = (st[key] || {})[st.scheme] || 0;
+      const line = lines[rule];
+      if (!pct || !line) return;
+      any = true;
+      const room = eq ? (eq - line) / eq * 100 : null;
+      const first = st.bindingRule === rule ? ' · 最先触发' : '';
+      rows.push(`<div><span>${label}线（−${pct}%）</span><b class="${room !== null && room < 2 ? 'neg' : ''}">${A.fmt(line, 2)}${room !== null ? ` · 距离 ${room.toFixed(2)}%` : ''}${first}</b></div>`);
+    });
+    if (!any) rows.push('<div><span>止损</span><b class="neg">未设置任何止损</b></div>');
+    const dd = st.drawdown;
+    if (dd !== null && dd !== undefined) rows.push(`<div><span>相对起点</span><b class="${dd > 0 ? 'neg' : 'pos'}">${A.fmtPct(-dd)}</b></div>`);
     if (st.auto && st.auto.enabled) rows.push(`<div><span>自动切换</span><b>${A.esc(st.auto.status)}</b></div>`);
     let html = `<div class="kv2">${rows.join('')}</div>`;
     if (st.switching) html += `<div class="note-box">正在切换到 ${A.esc(st.switching.label)}，OctoBot 重启需要 1–3 分钟…</div>`;
-    if (st.stopping) html += '<div class="note-box bad">正在执行止损：撤单、卖出全部持币、暂停交易…</div>';
+    if (st.stopping) html += '<div class="note-box bad">正在执行止损：撤单、卖出全部持币、切换到观望…</div>';
     if (st.stopped) {
       const x = st.stopped;
       const what = x.by === 'octobot'
         ? `OctoBot 内置备用止损先触发（起点资金 ${A.fmt(x.baseline || 0, 2)}，上限 ${x.pct}%）。`
-        : `资金从 ${A.fmt(x.baseline || 0, 2)} 跌到 ${A.fmt(x.equity || 0, 2)}（${x.loss ? '−' + x.loss.toFixed(2) + '%' : '—'}，上限 ${x.pct}%）。`;
+        : `${x.ruleLabel ? x.ruleLabel + '：' : ''}资金跌到 ${A.fmt(x.equity || 0, 2)}（${x.loss ? '−' + x.loss.toFixed(2) + '%' : '—'}，上限 ${x.pct}%）。`;
       const result = x.verified === true ? `已核实：挂单已撤销，只剩 USDT${x.finalEquity ? `（${A.fmt(x.finalEquity, 2)}）` : ''}，交易已暂停。`
         : x.problem ? `<b>未能确认全部执行：${A.esc(x.problem)}。</b>交易已暂停，请到 OctoBot 检查并手动处理。`
         : '正在核实撤单和卖出结果…';
       html += `<div class="note-box bad"><b>已触发止损</b> · ${timeOf(x.ts)}<br>${what}${result} OctoBot 配置已改为观望，重新启动一个方案或手动选择策略后恢复。</div>`;
     }
     $('schemeStatus').innerHTML = html;
+  }
+
+  const HEALTH_TAG = { ok: '正常', warn: '注意', bad: '异常' };
+  S.healthAt = 0;
+  async function checkHealth() {
+    if ($('settings').hidden || A.feed.usingDemo || Date.now() - S.healthAt < 15000) return;
+    S.healthAt = Date.now();
+    try {
+      const r = await A.feed.health();
+      $('healthSum').innerHTML = `<span class="hl-${r.status}">${HEALTH_TAG[r.status]}</span>`;
+      $('healthList').innerHTML = r.checks.map((c) => `<div class="hl-row hl-${c.status}"><i></i><b>${A.esc(c.label)}</b>
+        <span>${A.esc(c.detail)}${c.fix && c.status !== 'ok' ? `<em>${A.esc(c.fix)}</em>` : ''}</span></div>`).join('');
+    } catch (e) {
+      $('healthSum').textContent = '无法检查';
+      $('healthList').innerHTML = `<div class="hl-row hl-bad"><i></i><b>桥接服务</b><span>${A.esc(e.message)}</span></div>`;
+    }
   }
 
   const CHANNEL = { telegram: 'Telegram', wecom: '企业微信', feishu: '飞书', dingtalk: '钉钉', serverchan: 'Server 酱', generic: 'Webhook' };
