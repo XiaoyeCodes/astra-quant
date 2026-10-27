@@ -56,6 +56,7 @@
   A.Panels.init();
   A.Strategy.init();
   A.Simple.init();
+  A.Wizard.init();
   activate(A.viewStyle === 'holo' ? 'holo' : 'halo');
   camUI();
   A.$('trackToggle').addEventListener('click', () => A.Views.setTrack(!A.holoTrack));
@@ -69,6 +70,7 @@
     A.Graph.update(s);
     A.Strategy.update(s);
     A.Simple.update(s);
+    A.Wizard.maybeOffer(s);
   });
 
   A.feed.start();

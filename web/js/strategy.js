@@ -114,6 +114,8 @@
       return;
     }
     if (!S.pick) S.pick = st.scheme;
+    // the automatic schemes live in the folded 实验 section; open it when one is running or picked
+    if (!S.expOpened && (st.scheme !== 'manual' || S.pick !== 'manual')) { $('expSchemes').open = true; S.expOpened = true; }
     if (!S.aiPick) S.aiPick = st.aiTradeProfile;
     document.querySelectorAll('#schemeList button').forEach((b) => {
       b.classList.toggle('on', b.dataset.v === S.pick);
@@ -284,6 +286,8 @@
     $('stList').innerHTML = st.list.map((x) => {
       const badges = [];
       if (x.id === st.current) badges.push('<i class="b cur">当前</i>');
+      if (x.recommended) badges.push('<i class="b new">新手推荐</i>');
+      if (x.caution) badges.push('<i class="b warn">谨慎</i>');
       if ((v.prefer || []).includes(x.id)) badges.push('<i class="b rec">指标推荐</i>');
       if (aiv.strategy === x.id) badges.push('<i class="b ai">AI 推荐</i>');
       if (x.blocked) badges.push('<i class="b off">不可用</i>');
@@ -295,7 +299,7 @@
         else if (x.id === st.current) foot = '<p class="hint">正在运行这个策略。</p>';
         else if (st.blocked) foot = `<p class="hint bad">${A.esc(st.blocked)}</p>`;
         else foot = `<button type="button" class="act primary" data-go="${x.id}">${S.confirm === x.id ? '再点一次确认：OctoBot 将重启 1–3 分钟，方案改为手动' : `切换到「${A.esc(x.label)}」`}</button>`;
-        foot = `<p class="st-desc">${A.esc(x.description)}</p>${foot}`;
+        foot = `<p class="st-desc">${A.esc(x.description)}</p>${x.caution ? `<p class="hint warn-text">⚠ ${A.esc(x.caution)}</p>` : ''}${foot}`;
       }
       return `<div class="st-card${open ? ' open' : ''}${x.blocked ? ' blocked' : ''}" data-id="${x.id}" role="button" tabindex="0">
         <div class="st-top"><b>${A.esc(x.label)}</b><span class="tag">${FAMILY_TAG[x.family] || x.family}</span>${badges.join('')}</div>
