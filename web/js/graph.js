@@ -186,6 +186,7 @@
   function loop(ts) {
     requestAnimationFrame(loop);
     if (!G.cv || document.hidden || !G.s) return;
+    if (!G.cv.getClientRects().length) return; // hidden (simple home): nothing to draw, no zero-size canvas
     if (G.radial) { const rn = G.nodes.get(G.radial.id); if (rn) drawRadial(rn, neighbors(rn.id)); }
     const { ctx, w, h } = A.prep(G.cv);
     const dt = G.lastTs ? Math.min(0.05, (ts - G.lastTs) / 1000) : 0.016;
@@ -417,6 +418,7 @@
     const { ctx, w, h } = A.prep(A.$('inspRadial'));
     ctx.clearRect(0, 0, w, h);
     const cx = w / 2, cy = h / 2, R = Math.min(w, h) / 2 - 12;
+    if (R <= 0) return;
     ctx.strokeStyle = C.line2; ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.stroke();
     nb.forEach((x, i) => {
       const m = G.nodes.get(x.id); if (!m) return;

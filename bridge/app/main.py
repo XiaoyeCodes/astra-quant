@@ -30,6 +30,16 @@ cockpit = Cockpit()
 CONFIRM_WORD = "确认"
 
 
+class CockpitFiles(StaticFiles):
+    """The cockpit files change with every update: make browsers revalidate them (cheap ETag
+    check) instead of running a stale script against a newer bridge."""
+
+    def file_response(self, *args, **kwargs):
+        response = super().file_response(*args, **kwargs)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
 async def state_endpoint(request: Request) -> JSONResponse:
     return JSONResponse(cockpit.snapshot())
 
@@ -80,7 +90,7 @@ async def stop_bot(request: Request) -> JSONResponse:
 async def _json_body(request: Request) -> dict:
     try:
         body = await request.json()
-    except json.JSONDecodeError:
+    except ValueError:  # bad JSON or a body that is not UTF-8
         return {}
     return body if isinstance(body, dict) else {}
 
@@ -145,6 +155,19 @@ async def strategy_handover(request: Request) -> JSONResponse:
     return await _desk_call(apply())
 
 
+async def strategy_halt(request: Request) -> JSONResponse:
+    body = await _json_body(request)
+    if body.get("confirm") != CONFIRM_WORD:
+        return JSONResponse({"ok": False, "error": f"请输入“{CONFIRM_WORD}”以停止交易"}, status_code=400)
+    return await _desk_call(cockpit.desk.halt())
+
+
+async def report_send(request: Request) -> JSONResponse:
+    sent, text = cockpit.reporter.send_now()
+    return JSONResponse({"ok": True, "sent": sent, "text": text,
+                         "result": "日报已发送" if sent else "没有配置通知渠道，只能预览"})
+
+
 async def strategy_ai_refresh(request: Request) -> JSONResponse:
     async def apply() -> str:
         cockpit.desk.refresh_ai()
@@ -203,9 +226,11 @@ routes = [
     Route("/api/strategy/risk", strategy_risk, methods=["POST"]),
     Route("/api/strategy/ai-refresh", strategy_ai_refresh, methods=["POST"]),
     Route("/api/strategy/handover", strategy_handover, methods=["POST"]),
+    Route("/api/strategy/halt", strategy_halt, methods=["POST"]),
     Route("/api/notify/test", notify_test, methods=["POST"]),
+    Route("/api/report/send", report_send, methods=["POST"]),
     WebSocketRoute("/ws", ws_endpoint),
-    Mount("/", app=StaticFiles(directory=os.path.abspath(settings.web_dir), html=True), name="web"),
+    Mount("/", app=CockpitFiles(directory=os.path.abspath(settings.web_dir), html=True), name="web"),
 ]
 
 app = Starlette(routes=routes, lifespan=lifespan,

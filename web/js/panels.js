@@ -84,13 +84,17 @@
     else if (demo) msg = `<b>演示数据</b> · 桥接服务在线，但没有连上 OctoBot（${A.esc(L.octobot.error || '未启动')}）。启动 OctoBot 并选择策略后自动切换为真实数据。`;
     else if (s.stale || !L.bridge.ok) msg = '<b>数据连接中断</b> · 正在重连，下面保留的是最后收到的账户数据。连接恢复后自动更新。';
     else if (s.mode === 'live') msg = '<b style="color:var(--bear)">实盘</b> · OctoBot 正在使用 Bitget 真实资金交易。紧急情况可在 OctoBot 控制台停止策略。';
-    else if (s.strategy && s.strategy.stopped) msg = s.strategy.stopped.verified === false
-      ? `<b style="color:var(--bear)">止损未完全执行</b> · ${A.esc(s.strategy.stopped.problem || '')}。交易已暂停，请立即到 OctoBot 检查并手动处理。`
-      : '<b style="color:var(--bear)">已触发止损</b> · 挂单已撤销、持币已卖成 USDT、交易已暂停。在「设置 → 交易方案」重新启动方案或手动选择策略后恢复。';
+    else if (s.story && s.story.kind === 'stopped') msg = storyBanner(s.story);
     else if (!L.octobot.ok) msg = `<b>OctoBot 重连中</b> · ${s.strategy && s.strategy.switching ? '正在切换策略，OctoBot 重启需要 1–3 分钟。' : '连接暂时中断。'}下面显示的是断开前的最后数据。`;
     else if (s.mode === 'idle') msg = '<b>待机</b> · OctoBot 已连接，但还没有挂单或成交。可以在「设置 → 交易方案」选择方案或策略。';
     b.hidden = !msg;
     if (msg) b.innerHTML = msg;
+  }
+
+  // why it stopped, in plain words (same text as the simple home page)
+  function storyBanner(st) {
+    const color = st.tone === 'bad' ? 'var(--bear)' : 'var(--warn)';
+    return `<b style="color:${color}">${A.esc(st.title)}</b> · ${st.lines.map(A.esc).join('；')}${st.next ? `。<b>下一步</b>：${A.esc(st.next)}` : ''}`;
   }
 
   function renderHud(s) {

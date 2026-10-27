@@ -40,6 +40,14 @@
       try { msg('notifyMsg', await A.feed.notifyTest()); } catch (e) { msg('notifyMsg', e.message, true); }
     });
     ['slInput', 'trailInput', 'dailyInput'].forEach((id) => $(id).addEventListener('input', () => { S.slFor = S.pick; }));
+    $('reportSend').addEventListener('click', async () => {
+      msg('notifyMsg', '生成中…');
+      try {
+        const r = await A.feed.sendReport();
+        msg('notifyMsg', r.result, !r.sent);
+        $('reportPreview').textContent = r.text; $('reportPreview').hidden = false;
+      } catch (e) { msg('notifyMsg', e.message, true); }
+    });
     $('healthRun').addEventListener('click', () => { S.healthAt = 0; checkHealth(); });
     $('handoverSel').addEventListener('change', (e) => act('schemeMsg', 'handover', { policy: e.target.value }));
     $('stList').addEventListener('click', (e) => {
@@ -100,6 +108,9 @@
       $('radarRule').innerHTML = '<p class="hint">连接桥接服务后显示行情判断。</p>';
       $('radarAi').innerHTML = '';
       $('stList').innerHTML = '';
+      // OctoBot down but the bridge answers: notifications and the health check still work
+      if (A.feed.bridgeState) renderNotify(A.feed.bridgeState.notify);
+      checkHealth();
       return;
     }
     if (!S.pick) S.pick = st.scheme;
@@ -203,7 +214,7 @@
   const HEALTH_TAG = { ok: '正常', warn: '注意', bad: '异常' };
   S.healthAt = 0;
   async function checkHealth() {
-    if ($('settings').hidden || A.feed.usingDemo || Date.now() - S.healthAt < 15000) return;
+    if ($('settings').hidden || !A.feed.bridgeState || Date.now() - S.healthAt < 15000) return;
     S.healthAt = Date.now();
     try {
       const r = await A.feed.health();
@@ -218,6 +229,11 @@
 
   const CHANNEL = { telegram: 'Telegram', wecom: '企业微信', feishu: '飞书', dingtalk: '钉钉', serverchan: 'Server 酱', generic: 'Webhook' };
   function renderNotify(n) {
+    const d = (n && n.daily) || {};
+    $('reportStatus').textContent = d.hour === null || d.hour === undefined
+      ? '日报：已关闭（.env 里 DAILY_REPORT_HOUR=off）'
+      : `日报：每天北京时间 ${d.hour}:00 推送${n && n.channels.length ? '' : '（需要先配置通知渠道）'}` +
+        `${d.lastSent ? ` · 上次 ${d.lastSent}` : ''}${d.next ? ` · 下次 ${A.mdhm(d.next)}` : ''}`;
     const el = $('notifyStatus');
     if (!n || !n.channels.length) {
       el.textContent = '未配置。在 .env 填写 NOTIFY_TELEGRAM_TOKEN / NOTIFY_TELEGRAM_CHAT_ID，或 NOTIFY_WEBHOOK_URL（可选 NOTIFY_WEBHOOK_TYPE=wecom/feishu/dingtalk/serverchan）后重启。止损、OctoBot 离线、策略切换会推送到手机。';

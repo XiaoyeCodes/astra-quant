@@ -124,6 +124,15 @@
     return data;
   };
 
+  feed.sendReport = async function () {
+    if (!feed.bridgeState) throw new Error('演示模式下不能发送日报');
+    const res = await fetch('/api/report/send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    let data = {};
+    try { data = await res.json(); } catch (e) { /* ignore */ }
+    if (!res.ok || !data.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    return data;
+  };
+
   feed.health = async function () {
     const res = await fetch('/api/health/report', { cache: 'no-store' });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);

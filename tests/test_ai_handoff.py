@@ -130,7 +130,10 @@ class AutomaticSelectionTests(unittest.IsolatedAsyncioTestCase):
     async def test_two_matching_recommendations_can_switch(self):
         self.set_verdicts(answer(), answer())
         await self.desk.maybe_auto_switch()
-        self.desk.switch.assert_awaited_once_with("astra_spot_grid", by="auto")
+        self.desk.switch.assert_awaited_once()
+        args, kwargs = self.desk.switch.await_args
+        self.assertEqual((args, kwargs["by"]), (("astra_spot_grid",), "auto"))
+        self.assertIn("置信度", kwargs["why"])                 # the reason shown to the user
 
     async def test_low_confidence_does_not_switch(self):
         self.set_verdicts(answer(confidence=0.49), answer(confidence=0.49))
