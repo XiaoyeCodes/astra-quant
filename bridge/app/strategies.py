@@ -21,6 +21,10 @@ UNAVAILABLE_PRESETS = {
     "astra_ai_index": "AI 仓位尚未通过测试：新闻/市值数据源返回 401，无法完成仓位决策。请先使用 AI 信号。",
 }
 
+# The strategy offered to beginners (simple home, first-use wizard): best fee-aware backtest
+# with a small drawdown in sideways markets (docs/BACKTEST_2026-10-26.md). Decided 2026-10-27.
+RECOMMENDED = "astra_spot_grid"
+
 # family: drives how the cockpit draws the strategy (grid band, DCA ladder, signals, basket, ai)
 # regimes: market regimes the strategy is suited to (see regime.py)
 META: dict[str, dict] = {
@@ -30,8 +34,9 @@ META: dict[str, dict] = {
                             "summary": "网格随价格突破上沿整体上移，震荡上行时不踏空；急跌一样被套。"},
     "astra_staggered": {"label": "阶梯挂单", "family": "grid", "regimes": ["range"],
                         "summary": "超宽区间按比例间距挂单，不易跑出区间；资金分散，单格利润低。"},
-    "astra_spot_dca": {"label": "分批补仓", "family": "dca", "regimes": ["range"],
-                       "summary": "定时开仓，下跌分批补仓，均价上方止盈、下方止损。越跌买越多。"},
+    "astra_spot_dca": {"label": "分批补仓", "family": "dca", "regimes": ["range", "down"],
+                       "summary": "保守参数：3 天一轮，每跌 5% 补一单，均价上方 4% 止盈、下方 8% 止损，最多半仓。熊市少亏，牛市少赚。",
+                       "caution": "参数是按 2024-11~2026-10 的数据挑出来的，收益主要来自前一年，后一年基本持平，可能过拟合。"},
     "astra_smart_dca": {"label": "智能补仓", "family": "dca", "regimes": ["up"],
                         "summary": "EMA 显示超跌才买，小反弹分批止盈。适合上升趋势里的回调，无止损。"},
     "astra_trend": {"label": "趋势指标", "family": "signal", "regimes": ["up", "down"],
@@ -89,6 +94,8 @@ def describe(pid: str, data: dict) -> dict:
         "exchangeType": "future" if futures else "spot",
         "simulated": simulated,
         "blocked": blocked,
+        "recommended": pid == RECOMMENDED,
+        "caution": meta.get("caution"),
     }
 
 

@@ -6,7 +6,7 @@
 
   P.init = function (bookCv, chartCv) {
     P.book = bookCv; P.chart = chartCv;
-    const loop = () => { requestAnimationFrame(loop); if (!document.hidden && P.s) draw(); };
+    const loop = () => { requestAnimationFrame(loop); if (!document.hidden && P.s && P.chart.getClientRects().length) draw(); };
     requestAnimationFrame(loop);
   };
   P.update = function (s) {

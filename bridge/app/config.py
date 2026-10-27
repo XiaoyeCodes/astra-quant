@@ -73,6 +73,10 @@ class Settings:
         self.notify_proxy = os.getenv("NOTIFY_PROXY", "").strip()
         # alert when OctoBot stays unreachable this long outside a planned strategy switch
         self.notify_offline_after = float(os.getenv("NOTIFY_OFFLINE_AFTER", "") or 120)
+        # daily report hour (Beijing time, 0-23); "off" disables it
+        raw_hour = os.getenv("DAILY_REPORT_HOUR", "").strip().lower()
+        self.daily_report_hour = None if raw_hour in ("off", "none", "-1") else (
+            int(raw_hour) if raw_hour.isdigit() and int(raw_hour) < 24 else 21)
 
         # Host names the cockpit may be opened with (anything else is refused: DNS rebinding)
         self.allowed_hosts = set(_list("ALLOWED_HOSTS", "localhost,127.0.0.1,::1"))

@@ -239,6 +239,12 @@ def paper_snapshot_time() -> float | None:
     return latest
 
 
+def backup_stop_marker() -> dict | None:
+    """Left by OctoBot's patched StopTrading when its own backup stop-loss fired (tools/octobot_backup_stop.py)."""
+    data = _load_json(os.path.join(settings.octobot_user_dir, "astra_backup_stop.json"))
+    return data or None
+
+
 # ---------------------------------------------------------------- profile ---
 
 def _load_json(path: str) -> dict:

@@ -32,9 +32,11 @@ def lineup(verdicts):
         ("astra_spot_grid", lambda: bt.Grid(8, 0.005, name="现货网格 8×0.5%（ASTRA 参数）")),
         ("grid_wide", lambda: bt.Grid(10, 0.0075, name="现货网格 10×0.75%（报告选项 A）")),
         ("astra_trailing_grid", lambda: bt.Grid(8, 0.005, trailing=True, name="移动网格 8×0.5%")),
-        ("astra_spot_dca", lambda: bt.DCA()),
-        ("dca_conservative", lambda: bt.DCA(every=12, step=0.025, max_hold=0.5,
-                                            name="分批补仓（12h、2.5%、最多 50%）")),
+        # 2026-10-27 conservative parameters, chosen from a 64-combination sweep (in-sample: the
+        # gain comes mostly from the first year, the second year is about flat)
+        ("astra_spot_dca", lambda: bt.DCA(every=72, entry=0.04, step=0.05, sec_size=0.06, tp=0.04, sl=0.08,
+                                          max_hold=0.5, name="分批补仓（保守：3 天一轮、间距 5%、止盈 4%、止损 8%、最多半仓）")),
+        ("dca_old", lambda: bt.DCA(name="分批补仓（旧参数：4h、1.5%、止盈 1.2%）")),
         ("astra_trend", lambda: bt.Trend()),
         ("astra_index", "index"),
         ("rule_regime:keep", lambda: bt.RegimeSwitch(verdicts, "keep", name="指标选策略·交接 keep（原行为）")),

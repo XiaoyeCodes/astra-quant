@@ -40,13 +40,16 @@ SCHEMES = {
 }
 AI_TRADE_PROFILES = ("astra_ai_signal", "astra_ai_index")
 AI_CONFIRM = 2  # consecutive identical AI verdicts before an automatic switch
-STOP_ACTIONS = ["CancelOpenOrders", "SellAllCurrencies", "StopStrategiesAndPauseTrader"]
+# backup stop run by OctoBot itself when the bridge is down. StopTrading is patched to wait for the
+# paper save and park on 观望 with a restart: pausing (StopStrategiesAndPauseTrader) made OctoBot
+# rebuild the paper account from the starting funds on the next start
+STOP_ACTIONS = ["CancelOpenOrders", "SellAllCurrencies", "StopTrading"]
 CLEAR_ACTIONS = ["CancelOpenOrders", "SellAllCurrencies"]  # repeated each second until verified
 DUST_VALUE = 1.0  # holdings worth less than this (in the reference market) count as sold
 CLEAR_TIMEOUT = 60  # seconds to wait for orders cancelled and holdings sold
 IDLE_PROFILE = "astra_idle"
 RISK_TZ = timezone(timedelta(hours=8))  # trading day for the daily loss limit (Beijing time)
-RULE_LABELS = {"base": "最大止损", "trail": "回撤止损", "daily": "单日亏损上限"}
+RULE_LABELS = {"base": "最大止损", "trail": "回撤止损", "daily": "单日亏损上限", "manual": "手动停止"}
 # What happens to coins already held when the running strategy changes
 HANDOVER = {
     "flatten_on_idle": "切到观望时卖出全部持币，切到其他策略时保留",
@@ -115,6 +118,7 @@ class StrategyDesk:
             "baseline": None,   # {"equity", "ts", "scheme"}
             "stopped": None,    # {"ts", "equity", "baseline", "pct", "scheme"}
             "lastSwitch": None, "lastSwitchTo": None,
+            "lastSwitchInfo": None,  # {"ts", "from", "fromLabel", "to", "label", "by", "why", "handover"}
             "handover": "flatten_on_idle",
         }
         self._stopping = False
@@ -249,7 +253,7 @@ class StrategyDesk:
             return "账户资产估值正在初始化，请在连接稳定 1 分钟后启动方案或切换策略"
         return None
 
-    async def switch(self, pid: str, by: str = "user") -> str:
+    async def switch(self, pid: str, by: str = "user", why: str | None = None) -> str:
         c = self.c
         target = await asyncio.to_thread(strategies.find, pid)
         if target is None:
@@ -272,7 +276,9 @@ class StrategyDesk:
         await octo.restart_bot()
         self.switching = {"from": current, "to": pid, "label": target["label"], "by": by,
                           "since": now_ms(), "octoSince": c.link_octobot.get("since")}
-        self.cfg.update(lastSwitch=now_ms(), lastSwitchTo=pid)
+        self.cfg.update(lastSwitch=now_ms(), lastSwitchTo=pid, lastSwitchInfo={
+            "ts": now_ms(), "from": current, "fromLabel": c.profile.get("label") or current, "to": pid,
+            "label": target["label"], "by": by, "why": why, "handover": handover_note})
         self.save()
         who = {"auto": "自动切换", "scheme": "启动方案，切换"}.get(by, "手动切换")
         c.add_log("risk", f"{who}策略：{c.profile.get('label') or current} → {target['label']}，OctoBot 正在重启"
@@ -340,7 +346,9 @@ class StrategyDesk:
     def _arm(self, scheme: str) -> None:
         equity = self.c.oct_equity_live
         self.cfg.update(scheme=scheme, stopped=None,
-                        baseline={"equity": equity, "ts": now_ms(), "scheme": scheme} if equity else None,
+                        baseline={"equity": equity, "ts": now_ms(), "scheme": scheme,
+                                  # BTC price at the start: the daily report compares against holding BTC
+                                  "btc": getattr(self.c, "prices", {}).get("BTC/USDT")} if equity else None,
                         peak={"equity": equity, "ts": now_ms()} if equity else None,
                         day={"date": trading_day(), "equity": equity} if equity else None)
         self.save()
@@ -482,8 +490,12 @@ class StrategyDesk:
                 return
         elif not state["ready"]:
             return
+        verdict = self._verdict()[0]
+        source = "AI" if self.cfg["scheme"] == "ai_regime" else "行情雷达"
+        why = (f"{source}判断现在是「{verdict.get('label') or verdict.get('regime')}」行情"
+               f"（置信度 {verdict.get('confidence', 0):.0%}），这个策略更适合") if verdict else None
         try:
-            await self.switch(state["target"], by="auto")
+            await self.switch(state["target"], by="auto", why=why)
         except (ValueError, octo.OctoBotError) as err:
             self.c.add_log("warn", f"自动切换失败：{err}")
 
@@ -535,6 +547,14 @@ class StrategyDesk:
         if fresh_connection:
             self._connected_at = now_ms()
             self._gap_check = self._equity_before_gap is not None
+            marker = self._new_backup_stop()
+            if marker and not self._stopping:
+                # OctoBot's own stop sold and restarted while the bridge was away: the lower equity is
+                # a stop, not a paper reset, so the gap check must not rebase the anchors
+                self._gap_check = False
+                self._stopping = True
+                self._stop_task = asyncio.create_task(self.record_backup_stop(marker))
+                return
         settling = now_ms() - self._connected_at < 60 * 1000
         if live and not settling:
             if self._gap_check:
@@ -590,6 +610,8 @@ class StrategyDesk:
     async def _sync_safety_net(self) -> None:
         c = self.c
         pct = self.cfg["stopLoss"].get(self.cfg["scheme"], 0) if not self.cfg.get("stopped") else 0
+        if c.profile.get("id") == IDLE_PROFILE:
+            pct = 0  # 观望 holds only USDT and never trades: nothing for a backup stop to protect
         if c._mode() != "paper" or self._stopping:
             return
         key = (c.link_octobot.get("since"), c.profile.get("id"), pct)
@@ -604,8 +626,76 @@ class StrategyDesk:
         except octo.OctoBotError as err:
             log.warning("cannot set OctoBot automation: %s", err)
 
-    async def record_backup_stop(self) -> None:
-        """OctoBot's own automation already cancelled, sold and paused: record it and park on 观望."""
+    def _new_backup_stop(self) -> dict | None:
+        """The marker OctoBot's patched StopTrading leaves, if it fired since we last looked."""
+        marker = octo.backup_stop_marker()
+        if not marker or not isinstance(marker.get("ts"), (int, float)):
+            return None
+        ts = int(marker["ts"] * 1000)
+        if ts <= (self.cfg.get("backupSeen") or 0):
+            return None
+        base = self.cfg.get("baseline") or {}
+        if self.cfg.get("stopped") or ts < base.get("ts", 0):
+            self.cfg["backupSeen"] = ts  # belongs to an earlier scheme or an already recorded stop
+            self.save()
+            return None
+        return dict(marker, ts=ts)
+
+    async def record_backup_stop(self, marker: dict | None = None) -> None:
+        if marker:
+            await self._record_octobot_stop(marker)
+        else:
+            await self._record_paused_stop()
+
+    async def _record_octobot_stop(self, marker: dict) -> None:
+        """OctoBot cancelled, sold, waited for the paper save and restarted on 观望: record and verify."""
+        c = self.c
+        base = self.cfg.get("baseline") or {}
+        scheme = self.cfg["scheme"]
+        pct = self.cfg["stopLoss"].get(scheme, 0)
+        quote = c.profile.get("referenceMarket", "USDT")
+        self.cfg["backupSeen"] = marker["ts"]
+        self.cfg["stopped"] = {"ts": marker["ts"], "equity": None, "baseline": base.get("equity"), "pct": pct,
+                               "loss": None, "scheme": scheme, "by": "octobot", "verified": None,
+                               "rule": "base", "ruleLabel": RULE_LABELS["base"]}
+        self.save()
+        c.add_log("risk", f"OctoBot 内置备用止损已在 {datetime.fromtimestamp(marker['ts'] / 1000, RISK_TZ):%m-%d %H:%M} "
+                          f"触发（−{backup_pct(pct):g}%，桥接服务当时没有运行）：已撤单、卖出持币并切换到观望。正在核实")
+        try:
+            status = {"known": False, "orders": None, "leftovers": {}, "equity": None}
+            for _ in range(10):  # OctoBot just restarted: wait until it can value the holdings
+                await asyncio.sleep(6)
+                try:
+                    status = await self._liquidation_status(quote)
+                except octo.OctoBotError:
+                    continue
+                if status["known"]:
+                    break
+            on_idle = c.profile.get("id") == IDLE_PROFILE
+            verified = status["known"] and not status["orders"] and not status["leftovers"] and on_idle
+            problem = None
+            if not status["known"]:
+                problem = "无法读取 OctoBot 持仓，未能确认是否全部卖出"
+            elif status["orders"]:
+                problem = f"仍有 {status['orders']} 张挂单未撤销"
+            elif status["leftovers"]:
+                problem = "仍有持币未卖出：" + "、".join(f"{k} {v:g}" for k, v in status["leftovers"].items())
+            elif not on_idle:
+                problem = f"OctoBot 没有切换到观望（当前 {c.profile.get('id')}）"
+            equity = status.get("equity")
+            loss = (1 - equity / base["equity"]) * 100 if equity and base.get("equity") else None
+            self.cfg["stopped"].update(verified=verified, problem=problem, finalEquity=equity, equity=equity, loss=loss)
+            self.save()
+            if verified:
+                c.add_log("risk", f"备用止损已核实：挂单已撤销，只剩 {quote}（{equity:.2f}），OctoBot 停在观望，不会再下单")
+            else:
+                c.add_log("risk", f"备用止损未完全执行：{problem}。请到 OctoBot 检查并手动处理")
+        finally:
+            self._automation_key = None
+            self._stopping = False
+
+    async def _record_paused_stop(self) -> None:
+        """Older OctoBot path (or a trader paused by hand): cancelled, sold and paused; park on 观望."""
         c = self.c
         base = self.cfg.get("baseline") or {}
         pct = self.cfg["stopLoss"].get(self.cfg["scheme"], 0)
@@ -671,6 +761,10 @@ class StrategyDesk:
     def _stop_message(self, rule: str, equity: float) -> tuple[str, float, float | None]:
         """(log text, limit %, loss % from that rule's anchor)."""
         scheme = self.cfg["scheme"]
+        if rule == "manual":
+            ref = (self.cfg.get("baseline") or {}).get("equity")
+            loss = (1 - equity / ref) * 100 if equity and ref else None
+            return f"手动停止：权益 {equity or 0:.2f}。正在撤单、卖出全部持币并停止交易", 0, loss
         anchor, limit, what = {
             "base": (self.cfg.get("baseline"), self.cfg["stopLoss"].get(scheme, 0), "方案启动时"),
             "trail": (self.cfg.get("peak"), self.cfg["trail"].get(scheme, 0), "运行期间最高"),
@@ -691,6 +785,7 @@ class StrategyDesk:
         quote = c.profile.get("referenceMarket", "USDT")
         equity = c.oct_equity_live or c.oct_equity
         text, pct, loss = self._stop_message(rule, equity)
+        what = "停止" if rule == "manual" else "止损"
         c.add_log("risk", reason or text)
         self.cfg["stopped"] = {"ts": now_ms(), "equity": equity, "baseline": base.get("equity"),
                                "pct": pct, "loss": loss, "scheme": self.cfg["scheme"], "verified": None,
@@ -713,9 +808,9 @@ class StrategyDesk:
                               "since": now_ms(), "octoSince": octo_since}
             self._automation_key = None
         except octo.OctoBotError as err:
-            self.cfg["stopped"].update(verified=False, problem=f"止损执行出错：{err}")
+            self.cfg["stopped"].update(verified=False, problem=f"{what}执行出错：{err}")
             self.save()
-            c.add_log("risk", f"止损执行出错：{err}。请立即在 OctoBot 中手动撤单、卖出并停止策略")
+            c.add_log("risk", f"{what}执行出错：{err}。请立即在 OctoBot 中手动撤单、卖出并停止策略")
             self._stopping = False
             return
         verified = status["known"] and not status["orders"] and not status["leftovers"]
@@ -729,11 +824,28 @@ class StrategyDesk:
         self.cfg["stopped"].update(verified=verified, problem=problem, finalEquity=status.get("equity"))
         self.save()
         if verified:
-            c.add_log("risk", f"止损完成并已核实：挂单已撤销，只剩 {quote}（{status['equity']:.2f}）；"
+            c.add_log("risk", f"{what}完成并已核实：挂单已撤销，只剩 {quote}（{status['equity']:.2f}）；"
                               "OctoBot 正在切换到「观望」并重启，不会再下单")
         else:
-            c.add_log("risk", f"止损未完全执行：{problem}。OctoBot 正在切换到「观望」，请立即到 OctoBot 检查并手动处理")
+            c.add_log("risk", f"{what}未完全执行：{problem}。OctoBot 正在切换到「观望」，请立即到 OctoBot 检查并手动处理")
         self._stopping = False
+
+    async def halt(self) -> str:
+        """Stop by hand the same verified way a stop-loss does: cancel, sell, check, park on 观望."""
+        mode = self.c._mode()
+        if not self.c.link_octobot.get("ok"):
+            raise ValueError("OctoBot 未连接，现在无法撤单和卖出")
+        if mode == "live":
+            raise ValueError("当前为实盘：请在 OctoBot 中操作")
+        if mode != "paper":
+            raise ValueError("OctoBot 没有在模拟盘交易，不需要停止")
+        if self._stopping:
+            raise ValueError("正在执行止损或停止")
+        if self.switching:
+            raise ValueError("正在切换策略，请等待 OctoBot 重启完成")
+        self._stopping = True  # before the task starts, so a second click is refused
+        self._stop_task = asyncio.create_task(self.execute_stop(rule="manual"))
+        return "正在撤单并卖出全部持币，完成后切换到观望（约 1 分钟）"
 
     # ----------------------------------------------------------- snapshot ---
     def snapshot(self) -> dict:
@@ -764,6 +876,7 @@ class StrategyDesk:
             "drawdown": (1 - equity / base) * 100 if equity and base else None,
             "stopped": cfg.get("stopped"),
             "stopping": self._stopping,
+            "lastSwitchInfo": cfg.get("lastSwitchInfo"),
             "auto": self.auto_state(),
             "ai": {"available": llm.available(), "model": settings.llm_model, "verdict": self.ai_regime,
                    "error": self.ai_error, "periodMin": round(settings.ai_regime_period / 60)},

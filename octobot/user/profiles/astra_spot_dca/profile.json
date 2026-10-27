@@ -3,7 +3,9 @@
         "crypto-currencies": {
             "Bitcoin": {
                 "enabled": true,
-                "pairs": ["BTC/USDT"]
+                "pairs": [
+                    "BTC/USDT"
+                ]
             }
         },
         "exchanges": {
@@ -34,7 +36,7 @@
     "profile": {
         "avatar": "default_profile.png",
         "complexity": 2,
-        "description": "ASTRA 预设：Bitget 现货 BTC/USDT 分批补仓（与合约分批补仓相同参数，无杠杆）。每 4 小时开一轮：首单用 4% 资金，价格每下跌 1.5% 补一单（每单 6% 资金，共 3 单），均价上方 1.2% 止盈，下方 6% 止损。默认模拟盘。OctoBot 的 Bitget 插件不支持合约，合约版预设无法在 Bitget 上运行，可用本预设验证补仓逻辑。",
+        "description": "ASTRA 预设：Bitget 现货 BTC/USDT 分批补仓（保守参数，2026-10-27）。每 3 天开一轮，首单 4% 资金，价格每下跌 5% 补一单（每单 6% 资金，共 3 单），均价上方 4% 止盈、下方 8% 止损，最多用一半资金持币。默认模拟盘。回测 2024-11~2026-10 含手续费 +13.6%、最大回撤 10%，但参数按这段数据挑选，后一年基本持平。",
         "id": "astra_spot_dca",
         "name": "ASTRA · 现货分批补仓 BTC",
         "read_only": false,

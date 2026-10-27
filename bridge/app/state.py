@@ -15,6 +15,8 @@ from typing import Any
 
 from . import octobot_client as octo
 from . import strategies
+from . import summary
+from .report import DailyReporter
 from .audit import AuditLog
 from .autopilot import StrategyDesk
 from .notify import Notifier
@@ -142,6 +144,7 @@ class Cockpit:
         self._log_seq = 0
         self.audit = AuditLog(os.path.join(settings.data_dir, "logs"))
         self.notifier = Notifier()
+        self.reporter = DailyReporter(self)
         self._offline_notified = False
         for entry in self.audit.recent(160):  # the console survives a bridge restart
             self.log.append(entry)
@@ -246,7 +249,8 @@ class Cockpit:
         self.add_log("info", f"桥接服务 v{VERSION} 启动，OctoBot 地址 {settings.octobot_url}")
         if not settings.bitget_private:
             self.add_log("info", "未配置 Bitget API 密钥：只读取公开行情，账户数据来自 OctoBot")
-        loops = [self._loop_market, self._loop_candles, self._loop_octobot, self.desk.loop_rule, self.desk.loop_ai]
+        loops = [self._loop_market, self._loop_candles, self._loop_octobot, self.desk.loop_rule, self.desk.loop_ai,
+                 self.reporter.loop]
         if settings.bitget_private:
             loops.append(self._loop_private)
         self.tasks = [asyncio.create_task(fn()) for fn in loops]
@@ -602,7 +606,9 @@ class Cockpit:
             },
             "profile": self.profile,
             "strategy": self.desk.snapshot(),
-            "notify": self.notifier.status(),
+            "story": summary.story(self),
+            "numbers": summary.numbers(self),
+            "notify": dict(self.notifier.status(), daily=self.reporter.status()),
             "regime": self.desk.regime,
             "focus": {"symbol": self.focus, "type": "swap" if ":" in self.focus else "spot"},
             "symbols": self.watch_symbols(),

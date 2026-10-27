@@ -30,6 +30,9 @@
     <span class="chip" id="chipBridge"><i class="dot"></i>BRIDGE</span>
   </div>
   <div class="topright">
+    <div class="home-mode" id="homeMode" role="group" aria-label="首页显示方式">
+      <button type="button" data-v="simple">简洁</button><button type="button" data-v="pro">专业</button>
+    </div>
     <button class="gear" id="settingsBtn" type="button" aria-haspopup="dialog" aria-controls="settings"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><circle cx="12" cy="12" r="3.2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M12 2.8v3M12 18.2v3M2.8 12h3M18.2 12h3M5.5 5.5l2.1 2.1M16.4 16.4l2.1 2.1M5.5 18.5l2.1-2.1M16.4 7.6l2.1-2.1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>设置</button>
     <button class="kill" id="killBtn" type="button" hidden>紧急停止</button>
     <div class="clock num" id="clock">--:--:-- UTC</div>
@@ -37,6 +40,35 @@
 </header>
 
 <div class="banner" id="banner" hidden></div>
+
+<section class="simple" id="simpleHome" aria-label="简洁首页" hidden>
+  <div class="sm-money">
+    <div class="label">总资产</div>
+    <div class="sm-equity num-serif" id="smEquity">—</div>
+    <div class="sm-ccy" id="smCcy">USDT</div>
+    <dl class="sm-pnl num">
+      <div><dt>今天</dt><dd id="smToday">—</dd></div>
+      <div><dt id="smSinceLabel">自方案启动</dt><dd id="smSince">—</dd></div>
+    </dl>
+  </div>
+  <div class="sm-story" id="smStory" role="status" aria-live="polite"></div>
+  <button type="button" class="sm-health" id="smHealth"><i></i>系统体检检查中…</button>
+  <button type="button" class="sm-link" id="smWizard">使用向导：一步步选策略、设止损并启动</button>
+  <div class="sm-actions">
+    <button type="button" class="act primary" id="smSettings">设置方案与止损</button>
+    <button type="button" class="act danger" id="smStop">停止并卖出全部</button>
+  </div>
+  <div class="sm-confirm" id="smConfirm" hidden>
+    <p>会撤销全部挂单、卖出全部持币，核实只剩 USDT 后切换到「观望」，不再下单。之后可以随时重新启动方案。</p>
+    <label for="smWord">输入“确认”后执行</label>
+    <input id="smWord" type="text" autocomplete="off" placeholder="确认">
+    <div class="modal-actions">
+      <button type="button" class="ghost" id="smCancel">取消</button>
+      <button type="button" class="danger" id="smGo">停止并卖出</button>
+    </div>
+    <div class="modal-msg" id="smMsg" role="status"></div>
+  </div>
+</section>
 
 <main class="wrap">
   <!-- 01 · 3D stage -->
@@ -210,10 +242,13 @@
   <section class="drawer-sec" id="secScheme">
     <h4>交易方案</h4>
     <div class="schemes" id="schemeList" role="group" aria-label="交易方案">
-      <button type="button" data-v="manual"><b>手动</b><span>自己挑选策略</span></button>
-      <button type="button" data-v="ai_trade"><b>AI 交易</b><span>AI 给出买卖信号或仓位</span></button>
-      <button type="button" data-v="ai_regime"><b>AI 选策略</b><span>大模型判断行情后自动切换</span></button>
-      <button type="button" data-v="rule_regime"><b>指标选策略</b><span>ADX / ATR / 均线 / 布林带</span></button>
+      <button type="button" data-v="manual"><b>手动</b><span>自己挑选策略（推荐：现货网格）</span></button>
+      <details class="exp-schemes" id="expSchemes">
+        <summary>实验功能：自动方案 <em>回测亏损，只建议在模拟盘试用</em></summary>
+        <button type="button" data-v="ai_trade"><b>AI 交易</b><span>AI 给出买卖信号或仓位</span></button>
+        <button type="button" data-v="ai_regime"><b>AI 选策略</b><span>大模型判断行情后自动切换</span></button>
+        <button type="button" data-v="rule_regime"><b>指标选策略</b><span>ADX / ATR / 均线 / 布林带</span></button>
+      </details>
     </div>
     <div class="seg" id="aiTradePick" role="group" aria-label="AI 交易方式" hidden>
       <button type="button" data-v="astra_ai_signal">AI 信号（买卖点）</button>
@@ -253,8 +288,13 @@
   <section class="drawer-sec" id="secNotify">
     <h4>通知</h4>
     <p class="hint" id="notifyStatus">—</p>
-    <button type="button" class="act" id="notifyTest">发送测试通知</button>
+    <div class="act-row">
+      <button type="button" class="act" id="notifyTest">发送测试通知</button>
+      <button type="button" class="act" id="reportSend">预览并发送日报</button>
+    </div>
     <p class="hint msg" id="notifyMsg" role="status"></p>
+    <p class="hint" id="reportStatus"></p>
+    <pre class="report-preview" id="reportPreview" hidden></pre>
   </section>
   <section class="drawer-sec" id="secHealth">
     <h4>系统体检 · <span id="healthSum">—</span></h4>
@@ -300,6 +340,19 @@
   <p class="drawer-note">交易方案、止损和策略保存在桥接服务中；显示设置保存在本机浏览器。</p>
 </aside>
 
+<div class="modal" id="wizard" hidden>
+  <div class="modal-box wz-box" role="dialog" aria-modal="true" aria-labelledby="wzTitle">
+    <h3 id="wzTitle">开始使用 ASTRA</h3>
+    <ol class="wz-steps" id="wzSteps"></ol>
+    <div class="wz-body" id="wzBody"></div>
+    <div class="modal-msg" id="wzMsg" role="status"></div>
+    <div class="modal-actions">
+      <button type="button" class="ghost" id="wzSkip">跳过</button>
+      <button type="button" class="ghost" id="wzBack">上一步</button>
+      <button type="button" class="primary" id="wzNext">下一步</button>
+    </div>
+  </div>
+</div>
 <div class="modal" id="killModal" hidden>
   <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="killTitle">
     <h3 id="killTitle">紧急停止</h3>
@@ -326,6 +379,8 @@
 <script src="js/graph.js"></script>
 <script src="js/strategy.js"></script>
 <script src="js/panels.js"></script>
+<script src="js/simple.js"></script>
+<script src="js/wizard.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>

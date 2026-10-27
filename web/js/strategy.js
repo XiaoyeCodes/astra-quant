@@ -40,6 +40,14 @@
       try { msg('notifyMsg', await A.feed.notifyTest()); } catch (e) { msg('notifyMsg', e.message, true); }
     });
     ['slInput', 'trailInput', 'dailyInput'].forEach((id) => $(id).addEventListener('input', () => { S.slFor = S.pick; }));
+    $('reportSend').addEventListener('click', async () => {
+      msg('notifyMsg', '生成中…');
+      try {
+        const r = await A.feed.sendReport();
+        msg('notifyMsg', r.result, !r.sent);
+        $('reportPreview').textContent = r.text; $('reportPreview').hidden = false;
+      } catch (e) { msg('notifyMsg', e.message, true); }
+    });
     $('healthRun').addEventListener('click', () => { S.healthAt = 0; checkHealth(); });
     $('handoverSel').addEventListener('change', (e) => act('schemeMsg', 'handover', { policy: e.target.value }));
     $('stList').addEventListener('click', (e) => {
@@ -100,9 +108,14 @@
       $('radarRule').innerHTML = '<p class="hint">连接桥接服务后显示行情判断。</p>';
       $('radarAi').innerHTML = '';
       $('stList').innerHTML = '';
+      // OctoBot down but the bridge answers: notifications and the health check still work
+      if (A.feed.bridgeState) renderNotify(A.feed.bridgeState.notify);
+      checkHealth();
       return;
     }
     if (!S.pick) S.pick = st.scheme;
+    // the automatic schemes live in the folded 实验 section; open it when one is running or picked
+    if (!S.expOpened && (st.scheme !== 'manual' || S.pick !== 'manual')) { $('expSchemes').open = true; S.expOpened = true; }
     if (!S.aiPick) S.aiPick = st.aiTradeProfile;
     document.querySelectorAll('#schemeList button').forEach((b) => {
       b.classList.toggle('on', b.dataset.v === S.pick);
@@ -203,7 +216,7 @@
   const HEALTH_TAG = { ok: '正常', warn: '注意', bad: '异常' };
   S.healthAt = 0;
   async function checkHealth() {
-    if ($('settings').hidden || A.feed.usingDemo || Date.now() - S.healthAt < 15000) return;
+    if ($('settings').hidden || !A.feed.bridgeState || Date.now() - S.healthAt < 15000) return;
     S.healthAt = Date.now();
     try {
       const r = await A.feed.health();
@@ -218,6 +231,11 @@
 
   const CHANNEL = { telegram: 'Telegram', wecom: '企业微信', feishu: '飞书', dingtalk: '钉钉', serverchan: 'Server 酱', generic: 'Webhook' };
   function renderNotify(n) {
+    const d = (n && n.daily) || {};
+    $('reportStatus').textContent = d.hour === null || d.hour === undefined
+      ? '日报：已关闭（.env 里 DAILY_REPORT_HOUR=off）'
+      : `日报：每天北京时间 ${d.hour}:00 推送${n && n.channels.length ? '' : '（需要先配置通知渠道）'}` +
+        `${d.lastSent ? ` · 上次 ${d.lastSent}` : ''}${d.next ? ` · 下次 ${A.mdhm(d.next)}` : ''}`;
     const el = $('notifyStatus');
     if (!n || !n.channels.length) {
       el.textContent = '未配置。在 .env 填写 NOTIFY_TELEGRAM_TOKEN / NOTIFY_TELEGRAM_CHAT_ID，或 NOTIFY_WEBHOOK_URL（可选 NOTIFY_WEBHOOK_TYPE=wecom/feishu/dingtalk/serverchan）后重启。止损、OctoBot 离线、策略切换会推送到手机。';
@@ -268,6 +286,8 @@
     $('stList').innerHTML = st.list.map((x) => {
       const badges = [];
       if (x.id === st.current) badges.push('<i class="b cur">当前</i>');
+      if (x.recommended) badges.push('<i class="b new">新手推荐</i>');
+      if (x.caution) badges.push('<i class="b warn">谨慎</i>');
       if ((v.prefer || []).includes(x.id)) badges.push('<i class="b rec">指标推荐</i>');
       if (aiv.strategy === x.id) badges.push('<i class="b ai">AI 推荐</i>');
       if (x.blocked) badges.push('<i class="b off">不可用</i>');
@@ -279,7 +299,7 @@
         else if (x.id === st.current) foot = '<p class="hint">正在运行这个策略。</p>';
         else if (st.blocked) foot = `<p class="hint bad">${A.esc(st.blocked)}</p>`;
         else foot = `<button type="button" class="act primary" data-go="${x.id}">${S.confirm === x.id ? '再点一次确认：OctoBot 将重启 1–3 分钟，方案改为手动' : `切换到「${A.esc(x.label)}」`}</button>`;
-        foot = `<p class="st-desc">${A.esc(x.description)}</p>${foot}`;
+        foot = `<p class="st-desc">${A.esc(x.description)}</p>${x.caution ? `<p class="hint warn-text">⚠ ${A.esc(x.caution)}</p>` : ''}${foot}`;
       }
       return `<div class="st-card${open ? ' open' : ''}${x.blocked ? ' blocked' : ''}" data-id="${x.id}" role="button" tabindex="0">
         <div class="st-top"><b>${A.esc(x.label)}</b><span class="tag">${FAMILY_TAG[x.family] || x.family}</span>${badges.join('')}</div>

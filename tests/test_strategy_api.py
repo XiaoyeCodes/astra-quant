@@ -67,6 +67,20 @@ class StrategyAPITests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('401', describe('astra_ai_index', config)['blocked'])
         self.assertIsNone(describe('astra_ai_signal', config)['blocked'])
 
+    def test_beginner_recommendation_and_caution_flags(self):
+        config = {'config': {'trader': {'enabled': False}, 'trader-simulator': {'enabled': True}}}
+        grid, dca = describe('astra_spot_grid', config), describe('astra_spot_dca', config)
+        self.assertTrue(grid['recommended'])
+        self.assertIsNone(grid['caution'])
+        self.assertFalse(dca['recommended'])
+        self.assertIn('过拟合', dca['caution'])          # in-sample parameters are labelled honestly
+
+    def test_dca_backtest_summary_uses_the_new_parameters(self):
+        summary = json.loads((Path(__file__).resolve().parents[1] / 'bridge/app/backtest_summary.json')
+                             .read_text(encoding='utf-8'))
+        self.assertIn('保守', summary['results']['astra_spot_dca']['name'])
+        self.assertIn('dca_old', summary['results'])
+
     async def test_stop_guard_waits_for_grace_and_three_consecutive_breaches(self):
         self.desk.c.oct_equity_live = 80
         self.desk.c.oct_orders = []

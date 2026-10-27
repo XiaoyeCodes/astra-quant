@@ -80,6 +80,9 @@ Bitget 网站 → 头像 → **API 管理** → 创建 API：
 | **指标选策略** | 每 10 分钟用 ADX、ATR、均线斜率、布林带宽度判断行情并映射到策略；连续 3 次一致才切换。不需要 Key |
 
 - 自动切换只在 **模拟盘** 下工作，每个策略至少运行 12 小时才会被换掉（`.env` 中可调）。
+- **首次使用向导**：第一次打开时一步步检查连接、选策略（默认推荐现货网格）、设止损、配置通知，确认后才在模拟盘启动；简洁首页可随时重开。
+- **简洁首页**（默认）：一个数字看资产，一句话看状态（在干什么、为什么、下一步），体检指示灯，以及“停止并卖出全部”按钮。右上角可切回“专业”驾驶舱。
+- **每日报告**：每天北京时间 21:00（`.env` 里 `DAILY_REPORT_HOUR`，`off` 关闭）推送资产、今日盈亏、和持有 BTC 的对比、成交笔数、止损距离和体检问题。需要先配置通知渠道。
 - **系统体检与诊断包**：设置里的“系统体检”逐项检查 OctoBot、Bitget 行情、交易模式、止损、模拟手续费、AI、通知和数据目录，异常项给出处理办法；“导出诊断包”下载运行状态和最近日志，**不含任何密钥**（只记录是否已填写，导出前还会把所有已配置的密钥值替换成 ***）。接口：`/api/health/report`、`/api/diagnostics`。
 - **三条止损线**（每个方案单独设置，0 = 关闭）：**最大止损**（从方案启动时的资金算起）、**回撤止损**（从运行期间最高资金算起，保护利润）、**单日亏损上限**（从当天北京时间第一笔资金算起）。最高的那条最先触发，驾驶舱会标出来。
 - **止损**：从“启动方案时的资金”算起，亏损达到设定比例（连续约 9 秒确认）时，OctoBot 先 **撤销所有挂单、全部卖成 USDT**，驾驶舱从 OctoBot 的持仓表**核实只剩 USDT** 后再 **暂停交易**，并把配置改为“观望”，之后重启也不会恢复交易；没卖干净会明确提示“止损未完全执行”。OctoBot 重启后模拟资金被重置（离线前后相差超过 5%）会被识别为重置而不是亏损，止损起点随之调整。重新启动方案或手动选择策略后恢复。OctoBot 内部同时设置了一条同样动作的自动化作为备用（驾驶舱或桥接服务停止时也生效，从 OctoBot 本次启动算起）。
@@ -134,10 +137,9 @@ OctoBot 短暂断开（重启、切换策略）时，驾驶舱保留断开前的
 - **OctoBot 一直重启，日志里有 `KeyError: 'default'`**：插件没装上。运行 `docker compose run --rm --no-deps octobot tentacles --install --all` 后再 `start.bat`（新版 `start.bat` 首次运行会自动执行）。
 - **电脑休眠或重启后 OctoBot 页面打不开（容器显示 unhealthy）**：Docker 启动时网络还没就绪，OctoBot 连不上交易所后卡住。运行 `docker compose restart octobot` 即可。
 - **切换策略提示“新加入的策略需要先重启一次 OctoBot”**：OctoBot 只在启动时读取策略列表，运行 `docker compose restart octobot` 后再切换。
-- **电脑重启后 Docker Desktop 打不开或启动即退出**：日志里有 `docker-secrets-engine\engine.sock ... cannot be accessed`。这是非正常关机留下的 socket 文件，Windows 删不掉，在 PowerShell 运行 `wsl -d Ubuntu-24.04 -- rm -f /mnt/c/Users/<你的用户名>/AppData/Local/docker-secrets-engine/engine.sock`（发行版名称以 `wsl -l` 为准），再打开 Docker Desktop。
+- **电脑重启后 Docker Desktop 打不开或启动即退出**：错误窗口或日志里有 `initializing Secrets Engine ... docker-secrets-engine\engine.sock ... cannot be accessed`。先点 Quit（**不要**点 Reset to factory defaults，会清空所有容器和数据）。这是关机时留下的 socket 文件，Windows 删不掉，在 PowerShell 运行 `wsl -d Ubuntu-24.04 -- rm -f /mnt/c/Users/<你的用户名>/AppData/Local/docker-secrets-engine/engine.sock`（发行版名称以 `wsl -l` 为准），再打开 Docker Desktop。
 - **OctoBot 卡住不响应**：容器里的看门狗会在 OctoBot 连续 10 分钟无响应后自动重启它（首次启动有 15 分钟宽限），一般不需要手动处理；急用时可运行 `docker compose restart octobot`。
-- **端口被占用**：修改 `docker-compose.yml` 中的 `127.0.0.1:8080` 或 `127.0.0.1:5001` 左边的端口号。
-
+- **端口被占用**：驾驶舱端口在 `.env` 里设 `COCKPIT_PORT=8081`（或其他空闲端口），然后用 http://localhost:8081 打开；OctoBot 的 5001 端口在 `docker-compose.yml` 里改。
 ## 六、项目结构
 
 ```

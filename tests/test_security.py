@@ -85,6 +85,18 @@ class GuardTests(unittest.TestCase):
         self.assertEqual(r.status_code, 403)
         self.assertEqual(c.get("/api/health").status_code, 200)
 
+    def test_cockpit_files_are_revalidated(self):
+        c = TestClient(main.app, base_url="http://localhost:8080")
+        r = c.get("/js/simple.js")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.headers["cache-control"], "no-cache")   # a stale script never runs after an update
+
+    def test_body_that_is_not_utf8_is_a_400_not_a_crash(self):
+        c = TestClient(main.app, base_url="http://localhost:8080")
+        r = c.post("/api/strategy/halt", content='{"confirm":"确认"}'.encode("gbk"),
+                   headers={"Content-Type": "application/json"})
+        self.assertEqual(r.status_code, 400)
+
 
 if __name__ == "__main__":
     unittest.main()
