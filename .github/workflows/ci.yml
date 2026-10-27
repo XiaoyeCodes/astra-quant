@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: bridge/requirements.txt
+
+      - name: Install bridge dependencies (pinned) and test client
+        run: pip install -r bridge/requirements.txt httpx
+
+      - name: Python tests
+        run: python -m unittest discover -s tests -v
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Frontend tests
+        run: node --test tests/test_feed.cjs
+
+      - name: Frontend syntax check
+        run: for f in web/js/*.js; do node --check "$f"; done
+
+      - name: Build bridge image
+        run: docker build -f bridge/Dockerfile -t astra-bridge:ci .

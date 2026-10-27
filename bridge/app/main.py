@@ -10,6 +10,7 @@ import logging
 import os
 
 from starlette.applications import Starlette
+from starlette.middleware import Middleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Mount, Route, WebSocketRoute
@@ -18,6 +19,7 @@ from starlette.websockets import WebSocket, WebSocketDisconnect
 
 from .config import settings
 from .octobot_client import OctoBotError
+from .security import LocalOnlyGuard
 from .state import Cockpit
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"), format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -35,7 +37,7 @@ async def health(request: Request) -> JSONResponse:
 
 
 async def focus_endpoint(request: Request) -> JSONResponse:
-    body = await request.json()
+    body = await _json_body(request)
     cockpit.set_focus(str(body.get("symbol", "")))
     return JSONResponse({"focus": cockpit.focus})
 
@@ -111,6 +113,15 @@ async def strategy_ai_refresh(request: Request) -> JSONResponse:
     return await _desk_call(apply())
 
 
+async def notify_test(request: Request) -> JSONResponse:
+    channels = cockpit.notifier.channels
+    if not channels:
+        return JSONResponse({"ok": False, "error": "没有配置通知渠道：在 .env 填写 NOTIFY_TELEGRAM_* 或 NOTIFY_WEBHOOK_URL 后重启"},
+                            status_code=400)
+    cockpit.notifier.send("这是一条测试通知：收到说明止损、离线等提醒能送达。", "info", key="test", quiet_s=10)
+    return JSONResponse({"ok": True, "result": f"已发送到 {', '.join(channels)}，请查看手机"})
+
+
 async def ws_endpoint(ws: WebSocket) -> None:
     await ws.accept()
     cockpit.clients.add(ws)
@@ -149,8 +160,10 @@ routes = [
     Route("/api/strategy/scheme", strategy_scheme, methods=["POST"]),
     Route("/api/strategy/stoploss", strategy_stoploss, methods=["POST"]),
     Route("/api/strategy/ai-refresh", strategy_ai_refresh, methods=["POST"]),
+    Route("/api/notify/test", notify_test, methods=["POST"]),
     WebSocketRoute("/ws", ws_endpoint),
     Mount("/", app=StaticFiles(directory=os.path.abspath(settings.web_dir), html=True), name="web"),
 ]
 
-app = Starlette(routes=routes, lifespan=lifespan)
+app = Starlette(routes=routes, lifespan=lifespan,
+                middleware=[Middleware(LocalOnlyGuard, allowed_hosts=settings.allowed_hosts)])

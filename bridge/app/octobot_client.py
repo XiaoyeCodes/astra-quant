@@ -4,7 +4,7 @@ Uses only the standard library (urllib) in worker threads, so it has no extra
 dependency. Endpoints used (OctoBot web interface, login disabled):
   GET  /api/ping, /api/version
   GET  /api/orders, /api/trades, /api/positions, /api/pnl_history
-  GET  /api/historical_portfolio_value
+  GET  /api/historical_portfolio_value, /portfolio (holdings table, HTML)
   POST /api/orders?action=cancel_orders   (body: list of order ids)
   GET  /commands/stop, /commands/restart
   GET  /profile?select=<id>                (strategy switch, paper profiles only)
@@ -14,8 +14,11 @@ from __future__ import annotations
 
 import asyncio
 import glob
+import http.cookiejar
 import json
 import os
+import re
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -30,26 +33,72 @@ class OctoBotError(Exception):
     pass
 
 
-def _request(method: str, path: str, body: Any = None, timeout: float = 6.0) -> Any:
-    url = settings.octobot_url + path
+# One cookie jar for the whole bridge: holds OctoBot's session when its web password is on.
+# OctoBot runs next to us; never send this traffic through a proxy.
+_cookies = http.cookiejar.CookieJar()
+_opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), urllib.request.HTTPCookieProcessor(_cookies))
+_login_lock = threading.Lock()
+_last_login = 0.0
+_CSRF = re.compile(r'name="csrf_token"[^>]*value="([^"]+)"|value="([^"]+)"[^>]*name="csrf_token"')
+
+
+def _is_login_page(final_url: str, raw: str) -> bool:
+    if urllib.parse.urlsplit(final_url).path.rstrip("/") == "/login":
+        return True
+    return "login" in raw[:400].lower() and "<html" in raw[:200].lower()
+
+
+def _login() -> None:
+    """Log in with OCTOBOT_PASSWORD (Flask-WTF form: CSRF token + password)."""
+    global _last_login
+    with _login_lock:
+        if time.time() - _last_login < 60:
+            return  # OctoBot bans an address after repeated failures: at most one try a minute
+        _last_login = time.time()
+        try:
+            with _opener.open(settings.octobot_url + "/login", timeout=6) as resp:
+                page = resp.read().decode("utf-8", errors="replace")
+            match = _CSRF.search(page)
+            form = {"password": settings.octobot_password, "remember_me": "y"}
+            if match:
+                form["csrf_token"] = match.group(1) or match.group(2)
+            req = urllib.request.Request(settings.octobot_url + "/login", method="POST",
+                                         data=urllib.parse.urlencode(form).encode("utf-8"),
+                                         headers={"Content-Type": "application/x-www-form-urlencoded"})
+            with _opener.open(req, timeout=6) as resp:
+                final, raw = resp.geturl(), resp.read(4000).decode("utf-8", errors="replace")
+        except (urllib.error.URLError, TimeoutError, ConnectionError, OSError) as err:
+            raise OctoBotError(f"OctoBot login failed ({getattr(err, 'reason', err)})") from err
+        if _is_login_page(final, raw):
+            raise OctoBotError("OctoBot rejected OCTOBOT_PASSWORD: check the password in .env")
+
+
+def _send(method: str, path: str, body: Any, timeout: float) -> tuple[str, str, str]:
     data = None
     headers = {"Accept": "application/json"}
     if body is not None:
         data = json.dumps(body).encode("utf-8")
         headers["Content-Type"] = "application/json"
-    req = urllib.request.Request(url, data=data, method=method, headers=headers)
-    # OctoBot runs next to us; never send this traffic through a proxy
-    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    req = urllib.request.Request(settings.octobot_url + path, data=data, method=method, headers=headers)
     try:
-        with opener.open(req, timeout=timeout) as resp:
-            raw = resp.read().decode("utf-8", errors="replace")
-            ctype = resp.headers.get("Content-Type", "")
+        with _opener.open(req, timeout=timeout) as resp:
+            return (resp.read().decode("utf-8", errors="replace"), resp.headers.get("Content-Type", ""),
+                    resp.geturl())
     except urllib.error.HTTPError as err:
         raise OctoBotError(f"HTTP {err.code} on {path}") from err
     except (urllib.error.URLError, TimeoutError, ConnectionError, OSError) as err:
         raise OctoBotError(f"unreachable ({getattr(err, 'reason', err)})") from err
-    if "login" in raw[:400].lower() and "<html" in raw[:200].lower():
-        raise OctoBotError("OctoBot asks for a password: disable web password or keep it local only")
+
+
+def _request(method: str, path: str, body: Any = None, timeout: float = 6.0) -> Any:
+    raw, ctype, final = _send(method, path, body, timeout)
+    if _is_login_page(final, raw):
+        if not settings.octobot_password:
+            raise OctoBotError("OctoBot asks for a password: set OCTOBOT_PASSWORD in .env (same as OctoBot's)")
+        _login()
+        raw, ctype, final = _send(method, path, body, timeout)
+        if _is_login_page(final, raw):
+            raise OctoBotError("OctoBot still asks for a password after login")
     try:
         return json.loads(raw)
     except json.JSONDecodeError:
@@ -107,6 +156,37 @@ async def portfolio_value(currency: str) -> float | None:
     except (KeyError, TypeError, ValueError):
         return None
     return value if value > 0 else None  # OctoBot reports 0 while it starts up
+
+
+_ROW = re.compile(r'<tr class="symbol-holding[^"]*">(.*?)</tr>', re.S)
+_CELL = re.compile(r"<td[^>]*>(.*?)</td>", re.S)
+_SYMBOL = re.compile(r'<span class="symbol">\s*([^<\s]+)\s*</span>')
+
+
+def parse_holdings(page: str) -> dict[str, dict] | None:
+    """Holdings table of OctoBot's /portfolio page: {currency: {"total", "value"}}.
+
+    OctoBot has no JSON endpoint for current holdings. None when the table is absent
+    (paused trader, page changed); an empty dict is never returned for a real account.
+    """
+    if 'id="holdings-table"' not in page:
+        return None
+    out: dict[str, dict] = {}
+    for row in _ROW.findall(page):
+        symbol = _SYMBOL.search(row)
+        cells = [re.sub(r"<[^>]+>", "", c).strip() for c in _CELL.findall(row)]
+        if not symbol or len(cells) < 3:
+            continue
+        try:
+            out[symbol.group(1).upper()] = {"total": float(cells[1]), "value": float(cells[2])}
+        except ValueError:
+            continue
+    return out or None
+
+
+async def holdings() -> dict[str, dict] | None:
+    page = await call("GET", "/portfolio")
+    return parse_holdings(page) if isinstance(page, str) else None
 
 
 async def cancel_orders(order_ids: list[str]) -> str:

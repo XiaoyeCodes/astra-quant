@@ -21,8 +21,11 @@ services:
       GPT_DAILY_TOKEN_LIMIT: ${LLM_DAILY_TOKEN_LIMIT:-}
     ports:
       - "127.0.0.1:5001:5001"
-    # 驾驶舱的“紧急停止”会让 OctoBot 正常退出；on-failure 保证它不会被自动拉起
+    # 驾驶舱的“紧急停止”会让 OctoBot 正常退出；on-failure 保证它不会被自动拉起。
+    # OctoBot 卡死时 tools/octobot_supervisor.py 以状态 1 退出，由这里自动重启
     restart: on-failure
+    # 停止时先走 OctoBot 自己的 /commands/stop 正常退出（它不响应 SIGTERM）
+    stop_grace_period: 30s
 
   bridge:
     build:
